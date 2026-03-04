@@ -27,14 +27,32 @@ DDD building blocks for the [Roastery CMS](https://github.com/roastery-cms) ecos
 
 ## Installation
 
+Install the package and its peer dependencies:
+
 ```bash
-bun add @roastery/beans
+bun add @roastery/beans @roastery/terroir typescript
 ```
 
-**Peer dependencies** (install alongside):
+Or install them separately:
 
 ```bash
+# Install the library
+bun add @roastery/beans
+
+# Install peer dependencies
 bun add @roastery/terroir typescript
+```
+
+### Local development (link)
+
+If you're developing `beans` alongside another project, you can link it locally:
+
+```bash
+# Inside the beans directory
+bun run setup  # builds and registers the link
+
+# Inside your consuming project
+bun link @roastery/beans
 ```
 
 ---
