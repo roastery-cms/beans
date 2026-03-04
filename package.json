@@ -51,7 +51,7 @@
 		"test:unit": "bun test --env-file=.env.testing",
 		"test:coverage": "bun test --env-file=.env.testing --coverage",
 		"setup": "bun run build && bun link",
-		"prepare": "husky",
+		"prepare": "husky || true",
 		"knip": "knip"
 	},
 	"devDependencies": {
