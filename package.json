@@ -1,5 +1,6 @@
 {
 	"name": "@roastery/beans",
+	"description": "DDD building blocks for the Roastery CMS ecosystem — Entities, Value Objects, DTOs, Schemas, and Mappers.",
 	"version": "0.0.1",
 	"type": "module",
 	"author": {
