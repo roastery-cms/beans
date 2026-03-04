@@ -1,0 +1,1 @@
+mise exec -- bun commitlint --edit ${1}

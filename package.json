@@ -1,0 +1,71 @@
+{
+	"name": "@roastery/beans",
+	"version": "0.0.1",
+	"type": "module",
+	"author": {
+		"name": "Alan Reis",
+		"email": "alanreisanjo@gmail.com",
+		"url": "https://github.com/Hoyasumii"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/roastery-cms/beans"
+	},
+	"license": "MIT",
+	"keywords": [
+		"hoyasumii",
+		"roastery",
+		"@roastery",
+		"beans",
+		"@roastery/beans",
+		"roastery-beans"
+	],
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"typesVersions": {
+		"*": {
+			"*": [
+				"./dist/*/index.d.ts"
+			]
+		}
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		},
+		"./*": {
+			"types": "./dist/*/index.d.ts",
+			"import": "./dist/*/index.js",
+			"require": "./dist/*/index.cjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsup 'src/**/index.ts' --format cjs,esm --dts --tsconfig tsconfig.build.json --clean",
+		"test:unit": "bun test --env-file=.env.testing",
+		"test:coverage": "bun test --env-file=.env.testing --coverage",
+		"setup": "bun run build && bun link",
+		"prepare": "husky",
+		"knip": "knip"
+	},
+	"devDependencies": {
+		"@commitlint/cli": "^20.4.3",
+		"@commitlint/config-conventional": "^20.4.3",
+		"husky": "^9.1.7",
+		"knip": "^5.85.0"
+	},
+	"peerDependencies": {
+		"typescript": "^5.9.3",
+		"@roastery/terroir": "^0.0.7"
+	},
+	"dependencies": {
+		"slugify": "^1.6.6",
+		"@types/bun": "latest",
+		"tsup": "^8.5.1"
+	}
+}
