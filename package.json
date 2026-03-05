@@ -1,7 +1,7 @@
 {
 	"name": "@roastery/beans",
 	"description": "DDD building blocks for the Roastery CMS ecosystem — Entities, Value Objects, DTOs, Schemas, and Mappers.",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"type": "module",
 	"author": {
 		"name": "Alan Reis",
@@ -47,7 +47,7 @@
 		"dist"
 	],
 	"scripts": {
-		"build": "tsup 'src/**/index.ts' --format cjs,esm --dts --tsconfig tsconfig.build.json --clean",
+		"build": "biome check --fix && tsup 'src/**/index.ts' --format cjs,esm --dts --tsconfig tsconfig.build.json --clean",
 		"test:unit": "bun test --env-file=.env.testing",
 		"test:coverage": "bun test --env-file=.env.testing --coverage",
 		"setup": "bun run build && bun link",
