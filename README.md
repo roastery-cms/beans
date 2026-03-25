@@ -112,6 +112,36 @@ class Post extends Entity<typeof PostDTO> {
 | `EntitySource` | Identifies the entity origin (e.g. `"post"`, `"user"`) |
 | `EntitySchema` | Holds the entity's validation `Schema` instance |
 | `EntityContext` | Returns `IValueObjectMetadata` for a given property name |
+| `EntityStorage` | Accessor to the entity's internal key-value store |
+
+### EntityStorage
+
+Each entity instance has a built-in key-value store (`string → string`) accessible via the `[EntityStorage]` protected getter. Useful for storing transient, non-domain state inside an entity without exposing extra public properties.
+
+```typescript
+import { EntityStorage } from "@roastery/beans/entity";
+
+class Post extends Entity<typeof PostDTO> {
+  // ...
+
+  public addTag(tag: string): void {
+    const current = this[EntityStorage].get("tags") ?? "";
+    this[EntityStorage].set("tags", current ? `${current},${tag}` : tag);
+  }
+
+  public getTags(): string[] {
+    return (this[EntityStorage].get("tags") ?? "").split(",").filter(Boolean);
+  }
+}
+```
+
+The storage API is intentionally minimal:
+
+| Method | Description |
+|--------|-------------|
+| `get(key)` | Returns the value or `null` if the key does not exist |
+| `set(key, value)` | Stores a value under the given key |
+| `del(key)` | Removes the entry for the given key |
 
 ### AutoUpdate decorator
 
@@ -265,7 +295,7 @@ EmailSchema.match("invalid");          // false
 import { Entity } from "@roastery/beans";                       // Entity base class
 import { ValueObject } from "@roastery/beans";                  // ValueObject base class
 import { Mapper } from "@roastery/beans/mapper";                // Mapper (toDTO / toDomain)
-import { EntitySource, EntitySchema, EntityContext } from "@roastery/beans/entity"; // Symbols
+import { EntitySource, EntitySchema, EntityContext, EntityStorage } from "@roastery/beans/entity"; // Symbols
 import { AutoUpdate } from "@roastery/beans/entity";            // Decorator
 import { makeEntity, generateUUID, slugify } from "@roastery/beans/entity"; // Helpers
 import type { EntityDTO } from "@roastery/beans/entity";        // Entity DTO type

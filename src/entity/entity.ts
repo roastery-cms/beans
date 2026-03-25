@@ -1,16 +1,24 @@
 import type { IEntity } from "./types";
-import { EntitySource, EntitySchema, EntityContext } from "./symbols";
+import {
+	EntitySource,
+	EntitySchema,
+	EntityContext,
+	EntityStorage,
+} from "./symbols";
 import type { Schema } from "@roastery/terroir/schema";
 import { DateTimeVO, UuidVO } from "@/collections/value-objects";
 import type { EntityDTO } from "./dtos";
 import type { IValueObjectMetadata } from "@/value-object/types";
 import type { t } from "@roastery/terroir";
+import { EntityStorage as EntityStorageImpl } from "./entity-storage";
 
 export abstract class Entity<SchemaType extends t.TSchema>
 	implements IEntity<SchemaType>
 {
 	public abstract readonly [EntitySource]: string;
 	public abstract readonly [EntitySchema]: Schema<SchemaType>;
+
+	private readonly _storage: EntityStorageImpl;
 
 	private _id: UuidVO;
 	private _createdAt: DateTimeVO;
@@ -37,6 +45,8 @@ export abstract class Entity<SchemaType extends t.TSchema>
 		this._updatedAt = updatedAt
 			? DateTimeVO.make(updatedAt, this[EntityContext]("updatedAt"))
 			: undefined;
+
+		this._storage = new EntityStorageImpl();
 	}
 
 	protected update(): void {
@@ -48,5 +58,9 @@ export abstract class Entity<SchemaType extends t.TSchema>
 			name,
 			source: this[EntitySource],
 		};
+	}
+
+	protected get [EntityStorage](): EntityStorageImpl {
+		return this._storage;
 	}
 }

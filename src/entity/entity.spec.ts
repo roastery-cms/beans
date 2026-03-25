@@ -3,10 +3,11 @@ import { Entity } from "./entity";
 import type { IRawEntity } from "./types";
 import { Schema } from "@roastery/terroir/schema";
 import { t } from "@roastery/terroir";
-import { EntitySchema, EntitySource } from "./symbols";
+import { EntitySchema, EntitySource, EntityStorage } from "./symbols";
 import { makeEntity } from "./factories";
 import type { EntityDTO } from "./dtos";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
+import { EntityStorage as EntityStorageImpl } from "./entity-storage";
 
 const TestDTO = t.Object({
 	id: t.String(),
@@ -31,6 +32,10 @@ class TestEntity extends Entity<typeof TestDTO> {
 
 	public touch(): void {
 		this.update();
+	}
+
+	public getStorage(): EntityStorageImpl {
+		return this[EntityStorage];
 	}
 }
 
@@ -92,5 +97,37 @@ describe("Entity", () => {
 		data.updatedAt = now;
 		const entity = TestEntity.make(data);
 		expect(entity.updatedAt).toBe(now);
+	});
+
+	describe("EntityStorage", () => {
+		it("deve inicializar o storage na construção", () => {
+			const entity = TestEntity.make(makeEntity());
+			expect(entity.getStorage()).toBeInstanceOf(EntityStorageImpl);
+		});
+
+		it("deve retornar null para chave não definida no storage", () => {
+			const entity = TestEntity.make(makeEntity());
+			expect(entity.getStorage().get("qualquer")).toBeNull();
+		});
+
+		it("deve armazenar e recuperar valores no storage", () => {
+			const entity = TestEntity.make(makeEntity());
+			entity.getStorage().set("chave", "valor");
+			expect(entity.getStorage().get("chave")).toBe("valor");
+		});
+
+		it("deve remover valores do storage com del", () => {
+			const entity = TestEntity.make(makeEntity());
+			entity.getStorage().set("chave", "valor");
+			entity.getStorage().del("chave");
+			expect(entity.getStorage().get("chave")).toBeNull();
+		});
+
+		it("cada instância deve ter seu próprio storage isolado", () => {
+			const a = TestEntity.make(makeEntity());
+			const b = TestEntity.make(makeEntity());
+			a.getStorage().set("chave", "de-a");
+			expect(b.getStorage().get("chave")).toBeNull();
+		});
 	});
 });
