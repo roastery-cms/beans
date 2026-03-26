@@ -17,8 +17,7 @@ export abstract class Entity<SchemaType extends t.TSchema>
 {
 	public abstract readonly [EntitySource]: string;
 	public abstract readonly [EntitySchema]: Schema<SchemaType>;
-
-	private readonly _storage: EntityStorageImpl;
+	protected readonly [EntityStorage]: EntityStorageImpl;
 
 	private _id: UuidVO;
 	private _createdAt: DateTimeVO;
@@ -46,7 +45,7 @@ export abstract class Entity<SchemaType extends t.TSchema>
 			? DateTimeVO.make(updatedAt, this[EntityContext]("updatedAt"))
 			: undefined;
 
-		this._storage = new EntityStorageImpl();
+		this[EntityStorage] = new EntityStorageImpl();
 	}
 
 	protected update(): void {
@@ -58,9 +57,5 @@ export abstract class Entity<SchemaType extends t.TSchema>
 			name,
 			source: this[EntitySource],
 		};
-	}
-
-	protected get [EntityStorage](): EntityStorageImpl {
-		return this._storage;
 	}
 }
