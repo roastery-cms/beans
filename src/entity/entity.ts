@@ -15,7 +15,7 @@ import { EntityStorage as EntityStorageImpl } from "./entity-storage";
 export abstract class Entity<SchemaType extends t.TSchema>
 	implements IEntity<SchemaType>
 {
-	public abstract readonly [EntitySource]: string;
+	public readonly [EntitySource]: string;
 	public abstract readonly [EntitySchema]: Schema<SchemaType>;
 	protected readonly [EntityStorage]: EntityStorageImpl;
 
@@ -35,7 +35,12 @@ export abstract class Entity<SchemaType extends t.TSchema>
 		return this._updatedAt?.value;
 	}
 
-	protected constructor({ createdAt, id, updatedAt }: EntityDTO) {
+	protected constructor(
+		{ createdAt, id, updatedAt }: EntityDTO,
+		entitySource: string,
+	) {
+		this[EntitySource] = entitySource;
+
 		this._id = UuidVO.make(id, this[EntityContext]("id"));
 		this._createdAt = DateTimeVO.make(
 			createdAt,
