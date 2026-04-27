@@ -43,7 +43,6 @@ class TestValueObject extends ValueObject<string, typeof TestDTO> {
 
 // 3. Define Entity
 class TestEntity extends Entity<typeof TestDTO> {
-	public readonly [EntitySource] = "test";
 	public readonly [EntitySchema] = TestSchema;
 
 	public simpleField: string;
@@ -68,7 +67,7 @@ class TestEntity extends Entity<typeof TestDTO> {
 			arrayValueObjectField?: TestValueObject[];
 		},
 	) {
-		super(data);
+		super(data, "test");
 		this.simpleField = data.simpleField ?? "default";
 		this.valueObjectField =
 			data.valueObjectField ?? TestValueObject.create("vo-value");
@@ -224,6 +223,8 @@ describe("Mapper", () => {
 					),
 				});
 			});
+
+			entity;
 
 			expect(entity).toBeInstanceOf(TestEntity);
 			expect(entity.id).toBe(dto.id);

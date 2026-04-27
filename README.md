@@ -63,8 +63,8 @@ Abstract base class that every domain entity extends. Provides `id`, `createdAt`
 
 ```typescript
 import { Entity } from "@roastery/beans";
-import { EntitySource, EntitySchema, EntityContext } from "@roastery/beans/entity";
-import type { EntityDTO } from "@roastery/beans/entity";
+import { EntitySchema, EntityContext } from "@roastery/beans/entity/symbols";
+import type { EntityDTO } from "@roastery/beans/entity/dtos";
 import { Schema } from "@roastery/terroir/schema";
 import { t } from "@roastery/terroir";
 import { UuidDTO, DateTimeDTO, StringDTO, SlugDTO } from "@roastery/beans/collections";
@@ -83,7 +83,6 @@ const PostSchema = Schema.make(PostDTO);
 
 // 2. Implement the entity
 class Post extends Entity<typeof PostDTO> {
-  public readonly [EntitySource] = "post";
   public readonly [EntitySchema] = PostSchema;
 
   private _title: DefinedStringVO;
@@ -97,13 +96,15 @@ class Post extends Entity<typeof PostDTO> {
     return this._slug.value;
   }
 
-  constructor(data: EntityDTO & { title: string; slug: string }) {
-    super(data);
+  public constructor(data: EntityDTO & { title: string; slug: string }) {
+    super(data, "post");
     this._title = DefinedStringVO.make(data.title, this[EntityContext]("title"));
     this._slug = SlugVO.make(data.slug, this[EntityContext]("slug"));
   }
 }
 ```
+
+The entity-type tag (`"post"`) is passed as the second argument to `super(...)` and stored under `this[EntitySource]` by the base class — there is no need for a `[EntitySource]` class field on the subclass. The `[EntitySchema]` field is `abstract` on `Entity`, so every subclass must bind it to its own `Schema.make(...)` instance.
 
 ### Symbols
 
@@ -119,7 +120,7 @@ class Post extends Entity<typeof PostDTO> {
 Each entity instance has a built-in key-value store (`string → string`) accessible via the `[EntityStorage]` protected getter. Useful for storing transient, non-domain state inside an entity without exposing extra public properties.
 
 ```typescript
-import { EntityStorage } from "@roastery/beans/entity";
+import { EntityStorage } from "@roastery/beans/entity/symbols";
 
 class Post extends Entity<typeof PostDTO> {
   // ...
@@ -148,7 +149,7 @@ The storage API is intentionally minimal:
 Automatically calls `entity.update()` after a method executes, setting `updatedAt` to the current timestamp.
 
 ```typescript
-import { AutoUpdate } from "@roastery/beans/entity";
+import { AutoUpdate } from "@roastery/beans/entity/decorators";
 
 class Post extends Entity<typeof PostDTO> {
   // ...
@@ -166,7 +167,7 @@ class Post extends Entity<typeof PostDTO> {
 Generates fresh entity base data for testing:
 
 ```typescript
-import { makeEntity } from "@roastery/beans/entity";
+import { makeEntity } from "@roastery/beans/entity/factories";
 
 const data = makeEntity();
 // { id: "<uuid-v7>", createdAt: "<iso-string>", updatedAt: undefined }
@@ -222,8 +223,13 @@ const entity = Mapper.toDomain<typeof PostDTO>(dto, (data, entityProps) => {
 | `_property` | Stripped to `property` in DTO output |
 | `__property` | Ignored entirely (internal metadata) |
 | `ValueObject` instances | Extracted to `.value` |
+| `Schema` instances | Replaced with `.toString()` |
+| Nested `Entity` instances | Recursively converted |
 | Objects with `toDTO()` | Calls `.toDTO()` recursively |
 | Arrays | Each element processed recursively |
+| `null` / `undefined` / primitives | Passed through unchanged |
+
+Symbol-keyed properties (`[EntitySource]`, `[EntitySchema]`, `[EntityContext]`, `[EntityStorage]`) never appear in the produced DTO because the underlying walk only iterates string keys.
 
 ---
 
@@ -292,21 +298,29 @@ EmailSchema.match("invalid");          // false
 ## Exports reference
 
 ```typescript
-import { Entity } from "@roastery/beans";                       // Entity base class
-import { ValueObject } from "@roastery/beans";                  // ValueObject base class
-import { Mapper } from "@roastery/beans/mapper";                // Mapper (toDTO / toDomain)
-import { EntitySource, EntitySchema, EntityContext, EntityStorage } from "@roastery/beans/entity"; // Symbols
-import { AutoUpdate } from "@roastery/beans/entity";            // Decorator
-import { makeEntity, generateUUID, slugify } from "@roastery/beans/entity"; // Helpers
-import type { EntityDTO } from "@roastery/beans/entity";        // Entity DTO type
-import type { IEntity, IRawEntity } from "@roastery/beans/entity"; // Entity interfaces
-import type { IValueObjectMetadata } from "@roastery/beans/value-object"; // VO metadata
+// Top-level pillars
+import { Entity, Mapper, ValueObject } from "@roastery/beans";
 
-// Collections
-import { UuidVO, SlugVO, ... } from "@roastery/beans/collections"; // Value Objects
-import { UuidDTO, EmailDTO, ... } from "@roastery/beans/collections"; // DTOs
-import { UuidSchema, EmailSchema, ... } from "@roastery/beans/collections"; // Schemas
+// Entity subpaths
+import { EntitySource, EntitySchema, EntityContext, EntityStorage } from "@roastery/beans/entity/symbols";
+import { AutoUpdate } from "@roastery/beans/entity/decorators";
+import { makeEntity } from "@roastery/beans/entity/factories";
+import { generateUUID, slugify } from "@roastery/beans/entity/helpers";
+import { ParseEntityToDTOService } from "@roastery/beans/entity/services";
+import { EntitySchema as BaseEntitySchema } from "@roastery/beans/entity/schemas"; // runtime Schema for the base EntityDTO
+import { EntityDTO } from "@roastery/beans/entity/dtos";
+import type { IEntity, IRawEntity } from "@roastery/beans/entity/types";
+
+// ValueObject metadata
+import type { IValueObjectMetadata } from "@roastery/beans/value-object/types";
+
+// Collections (single barrel for DTOs, Schemas and Value Objects)
+import { UuidVO, SlugVO } from "@roastery/beans/collections";       // Value Objects
+import { UuidDTO, EmailDTO } from "@roastery/beans/collections";    // DTOs
+import { UuidSchema, EmailSchema } from "@roastery/beans/collections"; // Schemas
 ```
+
+> **Naming note.** `EntitySchema` exists in two forms: the **symbol** (under `/entity/symbols`) is the property key on `Entity`, while the homonymous **runtime instance** (under `/entity/schemas`) is `Schema.make(EntityDTO)` validating the base shape. The same applies to `EntityStorage` — symbol vs runtime class. The pairing is intentional; alias one when you need both in scope.
 
 ---
 

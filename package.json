@@ -1,7 +1,7 @@
 {
 	"name": "@roastery/beans",
 	"description": "DDD building blocks for the Roastery CMS ecosystem — Entities, Value Objects, DTOs, Schemas, and Mappers.",
-	"version": "0.0.4",
+	"version": "0.1.0",
 	"type": "module",
 	"author": {
 		"name": "Alan Reis",
@@ -14,6 +14,8 @@
 	},
 	"license": "MIT",
 	"keywords": [
+		"framework",
+		"ddd",
 		"hoyasumii",
 		"roastery",
 		"@roastery",
@@ -47,7 +49,7 @@
 		"dist"
 	],
 	"scripts": {
-		"build": "biome check --fix && tsup 'src/**/index.ts' --format cjs,esm --dts --tsconfig tsconfig.build.json --clean",
+		"build": "biome check --fix && knip && tsup 'src/**/index.ts' --format cjs,esm --dts --tsconfig tsconfig.build.json --clean",
 		"test:unit": "bun test --env-file=.env.testing",
 		"test:coverage": "bun test --env-file=.env.testing --coverage",
 		"setup": "bun run build && bun link",
@@ -66,7 +68,7 @@
 		"tsup": "^8.5.1"
 	},
 	"dependencies": {
-		"@roastery/terroir": "^0.0.9",
+		"@roastery/terroir": "^0.1.0",
 		"slugify": "^1.6.6"
 	}
 }

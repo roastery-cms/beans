@@ -17,8 +17,11 @@ const TestDTO = t.Object({
 const TestSchema = Schema.make(TestDTO);
 
 class TestEntity extends Entity<typeof TestDTO> {
-	public readonly [EntitySource] = "test";
 	public readonly [EntitySchema] = TestSchema;
+
+	public constructor(data: EntityDTO) {
+		super(data, "test");
+	}
 
 	static make(data: IRawEntity) {
 		return new TestEntity(data);
