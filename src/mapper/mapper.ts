@@ -3,6 +3,7 @@ import { ParseEntityToDTOService } from "../entity/services";
 import { EntitySchema, EntitySource } from "../entity/symbols";
 import type { IEntity, IRawEntity } from "../entity/types";
 import { InvalidDomainDataException } from "@roastery/terroir/exceptions/domain";
+import { Entity } from "@/entity";
 
 /**
  * Bidirectional bridge between {@link Entity} instances and their DTOs.
@@ -88,21 +89,30 @@ export const Mapper = {
 	 *   Override when the DTO carries denormalised fields you want excluded
 	 *   from the factory's `data` argument. (Generic added in commit `7d83eea`,
 	 *   closing issue #6.)
+	 * @typeParam Output - Whatever shape the factory produces. Defaults to
+	 *   `unknown` so the mapper stays agnostic: factories typically return an
+	 *   `IEntity<SchemaType>`, but they may also return a domain-specific
+	 *   sub-interface (e.g. `IPostTag`) or any other wrapper without the
+	 *   mapper having to widen its constraint. Specify it explicitly — or let
+	 *   it be inferred from the factory — when you want the call site to
+	 *   preserve the concrete return type.
 	 *
 	 * @param dto - DTO carrying both the entity props (`IRawEntity`) and the
 	 *   domain content (`Input`). The two halves are split before the factory runs.
 	 * @param factory - Builds the entity from the split data. The factory owns
 	 *   the choice of which value-objects to instantiate and how to wire them
-	 *   to private fields; the mapper does not look at the resulting entity.
-	 * @returns Whatever `factory` returns — typed as `IEntity<SchemaType>`.
+	 *   to private fields; the mapper does not look at the resulting entity,
+	 *   it just forwards whatever the factory returns.
+	 * @returns The value produced by `factory`, propagated as-is and typed as `Output`.
 	 */
 	toDomain: <
 		SchemaType extends t.TSchema,
 		Input = Omit<t.Static<SchemaType>, keyof IRawEntity>,
+		Output = unknown,
 	>(
 		dto: Input & IRawEntity,
-		factory: (data: Input, entityProps: IRawEntity) => IEntity<SchemaType>,
-	): IEntity<SchemaType> => {
+		factory: (data: Input, entityProps: IRawEntity) => Output,
+	): Output => {
 		const { id, createdAt, updatedAt, ...content } = dto;
 		return factory(content as Input, {
 			id,
