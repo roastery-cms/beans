@@ -18,16 +18,15 @@ export const Mapper = {
 
 		return entityMapped;
 	},
-	toDomain: <SchemaType extends t.TSchema>(
-		dto: t.Static<SchemaType>,
-		factory: (
-			data: Omit<t.Static<SchemaType>, keyof IRawEntity>,
-			entityProps: IRawEntity,
-		) => IEntity<SchemaType>,
+	toDomain: <
+		SchemaType extends t.TSchema,
+		Input = Omit<t.Static<SchemaType>, keyof IRawEntity>,
+	>(
+		dto: Input & IRawEntity,
+		factory: (data: Input, entityProps: IRawEntity) => IEntity<SchemaType>,
 	): IEntity<SchemaType> => {
-		const { id, createdAt, updatedAt, ...content } = dto as IRawEntity &
-			Record<string, unknown>;
-		return factory(content as Omit<t.Static<SchemaType>, keyof IRawEntity>, {
+		const { id, createdAt, updatedAt, ...content } = dto;
+		return factory(content as Input, {
 			id,
 			createdAt,
 			updatedAt,
