@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-05
+
+### Added
+
+- `EntityUpdater` (exported from `@roastery/beans/entity`) — stateful field-level updater that round-trips the entity through the `Mapper` (serialize → mutate → validate against `[EntitySchema]` → stamp `updatedAt` via `DateTimeVO.now` → rebuild through an `EntityFactory`). Accumulates updates (`updater.current` exposes the latest instance), skips the `updatedAt` stamp for structurally-equal or VO-normalized no-op values, rejects base-prop updates (`id`/`createdAt`/`updatedAt`) at the type level and at runtime, and throws `OperationFailedException` when the factory fails to preserve the entity's identity
+- `EntityFactory` type (exported from `@roastery/beans/entity/types`) — factory signature `(data, initialProperties?) => Entity` used by `EntityUpdater` and by `Mapper.toDomain`-style reconstruction
+- `EntityDTOOf` and `EntityUpdaterInput` types (exported from `@roastery/beans/entity/types`) — resolve an entity type's plain-object DTO shape and its domain-content slice; `EntityUpdaterInput` is the input shape `EntityUpdater` requires of its factory
+- `deepEquals` (exported from `@roastery/beans/entity/helpers`) — structural equality over JSON-shaped DTO values, used by `EntityUpdater` to detect and skip no-op updates
+
+### Changed
+
+- Biome schema reference in `biome.json` bumped from `2.4.11` to `2.4.16`
+
 ## [0.1.0] - 2026-04-27
 
 ### Added

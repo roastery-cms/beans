@@ -9,12 +9,14 @@
  * - `"@roastery/beans"` (this barrel) — the three top-level pillars
  *   ({@link Entity}, {@link Mapper}, {@link ValueObject}). Almost every consumer
  *   starts here.
- * - `"@roastery/beans/entity"` — the entity pillar. Subpaths: `/entity/dtos`,
+ * - `"@roastery/beans/entity"` — the entity pillar ({@link Entity} plus the
+ *   `EntityUpdater` update helper). Subpaths: `/entity/dtos`,
  *   `/entity/schemas`, `/entity/decorators` (`@AutoUpdate`),
  *   `/entity/factories` (`makeEntity`), `/entity/helpers`
- *   (`generateUUID`, `slugify`), `/entity/services`
+ *   (`deepEquals`, `generateUUID`, `slugify`), `/entity/services`
  *   (`ParseEntityToDTOService`), `/entity/symbols` (the four symbols),
- *   `/entity/types` (`IEntity`, `IRawEntity`).
+ *   `/entity/types` (`IEntity`, `IRawEntity`, `EntityFactory`,
+ *   `EntityDTOOf`, `EntityUpdaterInput`).
  * - `"@roastery/beans/mapper"` — the {@link Mapper} namespace.
  * - `"@roastery/beans/value-object"` — the abstract {@link ValueObject} base
  *   (with `IValueObjectMetadata` one level deeper at `/value-object/types`).
