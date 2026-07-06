@@ -12,7 +12,7 @@ import { uuid } from "@roastery/terroir";
  *
  * @example
  * ```ts
- * import { generateUUID } from "@roastery/beans/entity";
+ * import { generateUUID } from "@roastery/beans/entity/helpers";
  *
  * const id = generateUUID(); // e.g. "018f5c8e-2e1f-7b3a-8c4d-9a8b7c6d5e4f"
  * ```

@@ -173,6 +173,33 @@ const data = makeEntity();
 // { id: "<uuid-v7>", createdAt: "<iso-string>", updatedAt: undefined }
 ```
 
+### EntityUpdater
+
+Applies field-level updates by round-tripping the entity through the `Mapper`: serialize to DTO, mutate the requested field, validate against the entity's schema, stamp `updatedAt`, and rebuild via an `EntityFactory`. Rebuilding (instead of mutating in place) keeps every update flowing through the same value-object validation as initial construction. Successive updates accumulate — each effective call replaces the managed instance, exposed via `updater.current`.
+
+```typescript
+import { EntityUpdater } from "@roastery/beans/entity";
+import type { EntityFactory } from "@roastery/beans/entity/types";
+
+// PostInput = EntityUpdaterInput<Post> — the updater requires the factory
+// input to be exactly the DTO's domain content.
+const rebuildPost: EntityFactory<Post, PostInput> = (data, initialProperties) =>
+  new Post({ ...(initialProperties ?? makeEntity()), ...data });
+
+const updater = new EntityUpdater(post, rebuildPost);
+const renamed = updater.run("title", "New title");
+// renamed.updatedAt is freshly stamped; id/createdAt are preserved.
+updater.current === renamed; // true
+```
+
+Guarantees:
+
+- **No-op updates don't stamp.** A value that is structurally equal to the current one — or that a value-object normalises back into it (e.g. `SlugVO` turning `"Hello World"` into the current `"hello-world"`) — returns the *same* instance with `updatedAt` untouched.
+- **Invalid values are rejected before the factory runs.** The mutated DTO is matched against the entity's `[EntitySchema]`; a mismatch throws `InvalidDomainDataException`.
+- **Identity is enforced.** `run` only accepts domain fields (`id`/`createdAt`/`updatedAt` are excluded at the type level *and* rejected at runtime), and a factory that ignores its `initialProperties` argument — regenerating `id`/`createdAt` — makes `run` throw `OperationFailedException`.
+
+> **Limitation.** Rebuilding goes through the DTO, so transient state the mapper excludes — `[EntityStorage]` contents and `__`-prefixed fields — resets to constructor defaults on every effective update.
+
 ---
 
 ## ValueObject
@@ -302,14 +329,15 @@ EmailSchema.match("invalid");          // false
 import { Entity, Mapper, ValueObject } from "@roastery/beans";
 
 // Entity subpaths
+import { EntityUpdater } from "@roastery/beans/entity";
 import { EntitySource, EntitySchema, EntityContext, EntityStorage } from "@roastery/beans/entity/symbols";
 import { AutoUpdate } from "@roastery/beans/entity/decorators";
 import { makeEntity } from "@roastery/beans/entity/factories";
-import { generateUUID, slugify } from "@roastery/beans/entity/helpers";
+import { deepEquals, generateUUID, slugify } from "@roastery/beans/entity/helpers";
 import { ParseEntityToDTOService } from "@roastery/beans/entity/services";
 import { EntitySchema as BaseEntitySchema } from "@roastery/beans/entity/schemas"; // runtime Schema for the base EntityDTO
 import { EntityDTO } from "@roastery/beans/entity/dtos";
-import type { IEntity, IRawEntity } from "@roastery/beans/entity/types";
+import type { EntityFactory, EntityUpdaterInput, IEntity, IRawEntity } from "@roastery/beans/entity/types";
 
 // ValueObject metadata
 import type { IValueObjectMetadata } from "@roastery/beans/value-object/types";
