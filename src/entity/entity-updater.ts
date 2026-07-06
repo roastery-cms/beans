@@ -7,10 +7,14 @@ import {
 import { DateTimeVO } from "@/collections/value-objects";
 import { Mapper } from "@/mapper";
 import type { EntityDTO } from "./dtos";
-import { EntityContext, EntitySchema, EntitySource } from "./symbols";
+import {
+	EntityContext,
+	EntityFactory as EntityFactorySymbol,
+	EntitySchema,
+	EntitySource,
+} from "./symbols";
 import type {
 	EntityDTOOf,
-	EntityFactory,
 	EntityUpdaterInput,
 	IEntity,
 	IRawEntity,
@@ -32,8 +36,8 @@ const RAW_ENTITY_KEYS: ReadonlySet<PropertyKey> = new Set<PropertyKey>([
 /**
  * Stateful wrapper that applies field-level updates to an entity by
  * round-tripping it through the {@link Mapper}: serialise to DTO, mutate the
- * requested field, validate, stamp `updatedAt`, and rebuild via the
- * caller-provided {@link EntityFactory}.
+ * requested field, validate, stamp `updatedAt`, and rebuild via the entity's
+ * own {@link EntityFactory} (the symbol) method.
  *
  * Because entities keep their fields behind validated value-objects, mutating
  * one in place would bypass validation. The updater instead rebuilds the whole
@@ -53,21 +57,20 @@ const RAW_ENTITY_KEYS: ReadonlySet<PropertyKey> = new Set<PropertyKey>([
  * fields — is reset to constructor defaults on every effective update. Do not
  * manage entities whose transient state must survive mutations.
  *
- * @typeParam EntityType - The concrete entity under management. The factory's
- *   input is derived from it: the DTO's domain content
- *   (`Omit<t.Static<SchemaType>, keyof IRawEntity>`).
+ * @typeParam EntityType - The concrete entity under management. The
+ *   `[EntityFactory]` method's input is derived from it: the DTO's domain
+ *   content (`Omit<t.Static<SchemaType>, keyof IRawEntity>`).
  *
  * @see {@link Mapper} — performs the DTO round-trip (`toDTO` / `toDomain`).
- * @see {@link EntityFactory} — rebuilds the entity from the mutated DTO.
+ * @see {@link EntityFactory} (the symbol) — the entity's own self-rebuild
+ *   method, invoked to rebuild the mutated DTO into a fresh instance.
  * @see {@link IRawEntity} — the base fields (`id`, `createdAt`, `updatedAt`)
  *   excluded from `run`'s accepted property names.
  *
  * @example
  * ```ts
- * const rebuildPost: EntityFactory<Post, PostInput> = (data, initialProperties) =>
- * 	new Post({ ...(initialProperties ?? makeEntity()), ...data });
- *
- * const updater = new EntityUpdater(post, rebuildPost);
+ * // Post implements `[EntityFactory]` — see the Entity class doc.
+ * const updater = new EntityUpdater(post);
  * const renamed = updater.run("title", "New title");
  * // renamed.updatedAt is freshly stamped; id/createdAt are preserved.
  * updater.current === renamed; // true
@@ -77,18 +80,8 @@ export class EntityUpdater<EntityType extends IEntity<t.TSchema>> {
 	/**
 	 * @param entity - The entity instance to manage. Replaced on every
 	 *   effective {@link EntityUpdater.run} so updates accumulate.
-	 * @param entityFactory - Rebuilds the entity from the mutated DTO content
-	 *   plus the preserved base props. It **must** merge `initialProperties`
-	 *   into the payload it constructs from — a factory that ignores them and
-	 *   regenerates `id`/`createdAt` makes {@link EntityUpdater.run} throw.
 	 */
-	public constructor(
-		private entity: EntityType,
-		private readonly entityFactory: EntityFactory<
-			EntityType,
-			EntityUpdaterInput<EntityType>
-		>,
-	) {}
+	public constructor(private entity: EntityType) {}
 
 	/**
 	 * The entity instance currently under management — the original one until
@@ -103,7 +96,7 @@ export class EntityUpdater<EntityType extends IEntity<t.TSchema>> {
 	 * Sets `property` to `value` on the entity's DTO, validates the result
 	 * against the entity's `[EntitySchema]`, stamps `updatedAt` (through
 	 * {@link DateTimeVO.now}, the same clock the `Entity.update()` lifecycle
-	 * uses) and rebuilds the entity through the factory.
+	 * uses) and rebuilds the entity through its own `[EntityFactory]` method.
 	 *
 	 * No-op updates short-circuit: when `value` is structurally equal to the
 	 * current DTO value — or normalises to it during the rebuild (e.g. a
@@ -128,12 +121,12 @@ export class EntityUpdater<EntityType extends IEntity<t.TSchema>> {
 	 * @throws `InvalidDomainDataException` — when the current entity fails its
 	 *   own schema during serialisation ({@link Mapper.toDTO}), or when the
 	 *   mutated DTO no longer matches `[EntitySchema]` (the invalid value is
-	 *   rejected *before* the factory runs).
-	 * @throws `OperationFailedException` — when the factory does not preserve
-	 *   the entity's identity (`id`/`createdAt`), i.e. it ignored its
-	 *   `initialProperties` argument.
-	 * @throws `InvalidPropertyException` — when a value-object built by the
-	 *   factory rejects the mutated data while rebuilding.
+	 *   rejected *before* the `[EntityFactory]` method runs).
+	 * @throws `OperationFailedException` — when the entity's `[EntityFactory]`
+	 *   implementation does not preserve its identity (`id`/`createdAt`), i.e.
+	 *   it ignored the `initialProperties` argument it received.
+	 * @throws `InvalidPropertyException` — when a value-object built inside
+	 *   `[EntityFactory]` rejects the mutated data while rebuilding.
 	 */
 	public run<
 		Property extends Exclude<keyof EntityDTOOf<EntityType>, keyof IRawEntity>,
@@ -160,13 +153,14 @@ export class EntityUpdater<EntityType extends IEntity<t.TSchema>> {
 
 		const rebuilt = Mapper.toDomain(
 			mutated as unknown as EntityUpdaterInput<EntityType> & IRawEntity,
-			this.entityFactory,
+			(data, entityProps) =>
+				this.entity[EntityFactorySymbol](data, entityProps),
 		);
 
 		if (rebuilt.id !== before.id || rebuilt.createdAt !== before.createdAt)
 			throw new OperationFailedException(
 				this.entity[EntitySource],
-				`EntityUpdater.run: the factory did not preserve the entity's identity (id/createdAt) — it must merge the initialProperties it receives.`,
+				`EntityUpdater.run: the entity's [EntityFactory] implementation did not preserve its identity (id/createdAt) — it must merge the initialProperties it receives.`,
 			);
 
 		const after = Mapper.toDTO(rebuilt) as EntityDTO & EntityDTOOf<EntityType>;

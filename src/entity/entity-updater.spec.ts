@@ -10,9 +10,13 @@ import { DefinedStringVO, SlugVO } from "@/collections/value-objects";
 import { Entity } from "./entity";
 import { EntityUpdater } from "./entity-updater";
 import { makeEntity } from "./factories";
-import { EntityContext, EntitySchema } from "./symbols";
+import {
+	EntityContext,
+	EntityFactory as EntityFactorySymbol,
+	EntitySchema,
+} from "./symbols";
 import type { EntityDTO } from "./dtos";
-import type { EntityFactory, IRawEntity } from "./types";
+import type { IRawEntity } from "./types";
 
 // 1. Define Schema
 const PostDTO = t.Object({
@@ -58,19 +62,42 @@ class PostEntity extends Entity<typeof PostDTO> {
 	public get slug(): string {
 		return this._slug.value;
 	}
+
+	public [EntityFactorySymbol](
+		data: PostInput,
+		initialProperties?: EntityDTO,
+	): this {
+		return new PostEntity({
+			...(initialProperties ?? makeEntity()),
+			...data,
+		}) as this;
+	}
 }
 
-// 3. Define Factories
-const postFactory: EntityFactory<PostEntity, PostInput> = (
-	data,
-	initialProperties,
-) => new PostEntity({ ...(initialProperties ?? makeEntity()), ...data });
-
-const identityDroppingFactory: EntityFactory<PostEntity, PostInput> = (data) =>
-	new PostEntity({ ...makeEntity(), ...data });
-
+// 3. Fixtures
 const makePost = (): PostEntity =>
 	new PostEntity({
+		...makeEntity(),
+		title: "original",
+		slug: "hello-world",
+		views: 1,
+		tags: ["a", "b"],
+	});
+
+/**
+ * Mirrors `PostEntity` but its `[EntityFactory]` ignores `initialProperties`,
+ * regenerating fresh base props on every rebuild — exercises the
+ * `OperationFailedException` guard in `EntityUpdater.run` for factories that
+ * fail to preserve identity.
+ */
+class IdentityDroppingPostEntity extends PostEntity {
+	public override [EntityFactorySymbol](data: PostInput): this {
+		return new PostEntity({ ...makeEntity(), ...data }) as this;
+	}
+}
+
+const makeIdentityDroppingPost = (): IdentityDroppingPostEntity =>
+	new IdentityDroppingPostEntity({
 		...makeEntity(),
 		title: "original",
 		slug: "hello-world",
@@ -81,7 +108,7 @@ const makePost = (): PostEntity =>
 describe("EntityUpdater", () => {
 	describe("run", () => {
 		it("should update the property and stamp updatedAt", () => {
-			const updater = new EntityUpdater(makePost(), postFactory);
+			const updater = new EntityUpdater(makePost());
 
 			const updated = updater.run("title", "changed");
 
@@ -92,7 +119,7 @@ describe("EntityUpdater", () => {
 
 		it("should preserve id and createdAt through the factory rebuild", () => {
 			const entity = makePost();
-			const updater = new EntityUpdater(entity, postFactory);
+			const updater = new EntityUpdater(entity);
 
 			const updated = updater.run("views", 42);
 
@@ -103,7 +130,7 @@ describe("EntityUpdater", () => {
 
 		it("should return the same instance and skip updatedAt for an unchanged value", () => {
 			const entity = makePost();
-			const updater = new EntityUpdater(entity, postFactory);
+			const updater = new EntityUpdater(entity);
 
 			const updated = updater.run("title", "original");
 
@@ -113,7 +140,7 @@ describe("EntityUpdater", () => {
 
 		it("should treat a deep-equal array as unchanged", () => {
 			const entity = makePost();
-			const updater = new EntityUpdater(entity, postFactory);
+			const updater = new EntityUpdater(entity);
 
 			const updated = updater.run("tags", ["a", "b"]);
 
@@ -123,7 +150,7 @@ describe("EntityUpdater", () => {
 
 		it("should treat a value that normalises to the current one as unchanged", () => {
 			const entity = makePost();
-			const updater = new EntityUpdater(entity, postFactory);
+			const updater = new EntityUpdater(entity);
 
 			// SlugVO slugifies "Hello World" back into the current "hello-world".
 			const updated = updater.run("slug", "Hello World");
@@ -134,7 +161,7 @@ describe("EntityUpdater", () => {
 		});
 
 		it("should accumulate successive updates", () => {
-			const updater = new EntityUpdater(makePost(), postFactory);
+			const updater = new EntityUpdater(makePost());
 
 			updater.run("title", "second");
 			const updated = updater.run("views", 2);
@@ -144,7 +171,7 @@ describe("EntityUpdater", () => {
 		});
 
 		it("should throw InvalidDomainDataException when the value breaks the schema", () => {
-			const updater = new EntityUpdater(makePost(), postFactory);
+			const updater = new EntityUpdater(makePost());
 
 			expect(() => updater.run("views", -5)).toThrow(
 				InvalidDomainDataException,
@@ -153,20 +180,20 @@ describe("EntityUpdater", () => {
 		});
 
 		it("should throw InvalidPropertyException when a value-object rejects the value", () => {
-			const updater = new EntityUpdater(makePost(), postFactory);
+			const updater = new EntityUpdater(makePost());
 
 			expect(() => updater.run("title", "")).toThrow(InvalidPropertyException);
 			expect(updater.current.title).toBe("original");
 		});
 
 		it("should throw OperationFailedException when the factory drops the entity identity", () => {
-			const updater = new EntityUpdater(makePost(), identityDroppingFactory);
+			const updater = new EntityUpdater(makeIdentityDroppingPost());
 
 			expect(() => updater.run("views", 2)).toThrow(OperationFailedException);
 		});
 
 		it("should reject base entity props at runtime", () => {
-			const updater = new EntityUpdater(makePost(), postFactory);
+			const updater = new EntityUpdater(makePost());
 
 			expect(() => updater.run("id" as never, "other" as never)).toThrow(
 				InvalidPropertyException,
@@ -180,14 +207,14 @@ describe("EntityUpdater", () => {
 	describe("current", () => {
 		it("should expose the original instance before any update", () => {
 			const entity = makePost();
-			const updater = new EntityUpdater(entity, postFactory);
+			const updater = new EntityUpdater(entity);
 
 			expect(updater.current).toBe(entity);
 		});
 
 		it("should reflect the latest rebuilt instance after updates", () => {
 			const entity = makePost();
-			const updater = new EntityUpdater(entity, postFactory);
+			const updater = new EntityUpdater(entity);
 
 			const updated = updater.run("title", "changed");
 

@@ -1,9 +1,10 @@
-import type { IEntity } from "./types";
+import type { IEntity, IRawEntity } from "./types";
 import {
 	EntitySource,
 	EntitySchema,
 	EntityContext,
 	EntityStorage,
+	EntityFactory as EntityFactorySymbol,
 } from "./symbols";
 import type { Schema } from "@roastery/terroir/schema";
 import { DateTimeVO, UuidVO } from "@/collections/value-objects";
@@ -27,6 +28,8 @@ import { EntityStorage as EntityStorageImpl } from "./entity-storage";
  *
  * - `public readonly [EntitySource]` — the entity-type name (e.g. `"post"`).
  * - `public readonly [EntitySchema]` — the {@link Schema} validating the DTO.
+ * - `public [EntityFactory]` — rebuilds an instance of the subclass's own type
+ *   from domain-content input; see {@link EntityFactory} (the symbol).
  *
  * Construction is `protected`: subclasses receive an `EntityDTO`-shaped payload
  * (`id`, `createdAt`, `updatedAt`) plus their own domain fields, and must call
@@ -45,18 +48,22 @@ import { EntityStorage as EntityStorageImpl } from "./entity-storage";
  * @see {@link EntityContext} — symbol keying the metadata-builder method.
  * @see {@link EntityStorage} — symbol keying the per-instance storage (homonymous with the
  *   runtime `EntityStorage` class).
+ * @see {@link EntityFactory} — symbol keying the abstract self-rebuild method (homonymous with the
+ *   `EntityFactory` type in `src/entity/types/entity-factory.ts`).
  * @see {@link Mapper} — `toDTO` / `toDomain` round-trip an `Entity` against its DTO.
  *
  * @example
  * ```ts
  * import { Entity } from "@roastery/beans";
- * import { EntitySource, EntitySchema, EntityContext } from "@roastery/beans/entity";
+ * import { EntitySource, EntitySchema, EntityContext, EntityFactory } from "@roastery/beans/entity";
  * import type { EntityDTO } from "@roastery/beans/entity";
+ * import { makeEntity } from "@roastery/beans/entity/factories";
  * import { DefinedStringVO, StringDTO } from "@roastery/beans/collections";
  * import { Schema } from "@roastery/terroir/schema";
  * import { t } from "@roastery/terroir";
  *
  * const PostDTO = t.Object({ id: t.String(), createdAt: t.String(), title: StringDTO });
+ * type PostInput = { title: string };
  *
  * class Post extends Entity<typeof PostDTO> {
  *   public readonly [EntitySource] = "post";
@@ -64,9 +71,13 @@ import { EntityStorage as EntityStorageImpl } from "./entity-storage";
  *
  *   private readonly _title: DefinedStringVO;
  *
- *   public constructor(data: EntityDTO & { title: string }) {
+ *   public constructor(data: EntityDTO & PostInput) {
  *     super(data, "post");
  *     this._title = DefinedStringVO.make(data.title, this[EntityContext]("title"));
+ *   }
+ *
+ *   public [EntityFactory](data: PostInput, initialProperties?: EntityDTO): this {
+ *     return new Post({ ...(initialProperties ?? makeEntity()), ...data }) as this;
  *   }
  * }
  * ```
@@ -79,6 +90,19 @@ export abstract class Entity<SchemaType extends t.TSchema>
 
 	/** Validation schema for this entity's DTO. **Abstract** — every subclass binds it to the appropriate `Schema.make(...)` instance. */
 	public abstract readonly [EntitySchema]: Schema<SchemaType>;
+
+	/**
+	 * Rebuilds an instance of this entity's own type from domain-content
+	 * input, optionally preserving the base props of an already-persisted
+	 * entity. **Abstract** — every subclass implements it, typically
+	 * `new Subclass({ ...(initialProperties ?? makeEntity()), ...data }) as this`.
+	 * Declared as a method (not a property) — see
+	 * {@link EntityFactory} (the symbol) for why the property form breaks.
+	 */
+	public abstract [EntityFactorySymbol](
+		data: Omit<t.Static<SchemaType>, keyof IRawEntity>,
+		initialProperties?: EntityDTO,
+	): this;
 
 	/** Per-instance transient `string → string` store. Created fresh in the constructor; access from subclasses via `this[EntityStorage]`. */
 	protected readonly [EntityStorage]: EntityStorageImpl;

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-06
+
+### Added
+
+- `EntityFactory` symbol (exported from `@roastery/beans/entity/symbols`) — abstract self-rebuild method every `Entity` subclass must implement as `[EntityFactory](data, initialProperties?): this`, so generic consumers holding an entity instance (e.g. `EntityUpdater`) can rebuild it without a separately-wired factory function
+
+### Changed
+
+- **BREAKING:** `Entity`/`IEntity` now declare `[EntityFactory]` as an abstract instance method; every concrete entity subclass must implement it (typically `return new Subclass({ ...(initialProperties ?? makeEntity()), ...data }) as this;`)
+- **BREAKING:** `EntityUpdater`'s constructor no longer takes an `entityFactory` second argument (`new EntityUpdater(entity)` instead of `new EntityUpdater(entity, entityFactory)`) — it now calls the entity's own `[EntityFactory]` method to rebuild after each mutation
+
 ## [0.1.1] - 2026-07-05
 
 ### Added

@@ -1,5 +1,11 @@
 import type { Schema } from "@roastery/terroir/schema";
-import type { EntityContext, EntitySchema, EntitySource } from "../symbols";
+import type {
+	EntityContext,
+	EntityFactory as EntityFactorySymbol,
+	EntitySchema,
+	EntitySource,
+} from "../symbols";
+import type { EntityDTO } from "../dtos";
 import type { IRawEntity } from "./raw-entity.interface";
 import type { IValueObjectMetadata } from "@/value-object/types";
 import type { t } from "@roastery/terroir";
@@ -10,7 +16,7 @@ import type { t } from "@roastery/terroir";
  * class; consumed as a generic constraint by {@link Mapper.toDTO} and
  * `ParseEntityToDTOService.run`.
  *
- * The three symbol-keyed members tag the entity with the metadata required for
+ * The symbol-keyed members tag the entity with the metadata required for
  * validation and DTO mapping. Symbols (rather than string keys) keep these
  * properties invisible to the mapper's iteration walk so they never leak into
  * the produced DTO.
@@ -27,6 +33,18 @@ export interface IEntity<SchemaType extends t.TSchema> extends IRawEntity {
 
 	/** Validation schema for the entity's DTO; bound by each subclass. */
 	readonly [EntitySchema]: Schema<SchemaType>;
+
+	/**
+	 * Rebuilds an instance of this entity's own type from domain-content
+	 * input, optionally preserving the base props of an already-persisted
+	 * entity. Declared as a method (not a property) so each subclass can
+	 * narrow `data` to its own concrete input type — see
+	 * {@link EntityFactory} (the symbol) for why that requires method syntax.
+	 */
+	[EntityFactorySymbol](
+		data: Omit<t.Static<SchemaType>, keyof IRawEntity>,
+		initialProperties?: EntityDTO,
+	): this;
 
 	/**
 	 * Builds a fresh `IValueObjectMetadata` payload tagged with `[EntitySource]`.

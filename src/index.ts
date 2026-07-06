@@ -14,7 +14,7 @@
  *   `/entity/schemas`, `/entity/decorators` (`@AutoUpdate`),
  *   `/entity/factories` (`makeEntity`), `/entity/helpers`
  *   (`deepEquals`, `generateUUID`, `slugify`), `/entity/services`
- *   (`ParseEntityToDTOService`), `/entity/symbols` (the four symbols),
+ *   (`ParseEntityToDTOService`), `/entity/symbols` (the five symbols),
  *   `/entity/types` (`IEntity`, `IRawEntity`, `EntityFactory`,
  *   `EntityDTOOf`, `EntityUpdaterInput`).
  * - `"@roastery/beans/mapper"` — the {@link Mapper} namespace.

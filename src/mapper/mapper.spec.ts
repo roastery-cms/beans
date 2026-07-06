@@ -3,11 +3,17 @@ import { Entity } from "../entity/entity";
 import { Mapper } from "./mapper";
 import { Schema } from "@roastery/terroir/schema";
 import { makeEntity } from "../entity/factories";
-import { EntitySchema, EntitySource, EntityContext } from "../entity/symbols";
+import {
+	EntityContext,
+	EntityFactory as EntityFactorySymbol,
+	EntitySchema,
+	EntitySource,
+} from "../entity/symbols";
 import { generateUUID } from "../entity/helpers";
 import { t } from "@roastery/terroir";
 import { ValueObject } from "@/value-object";
 import type { EntityDTO } from "@/entity/dtos";
+import type { IRawEntity } from "@/entity/types";
 import type { IValueObjectMetadata } from "@/value-object/types";
 import { InvalidDomainDataException } from "@roastery/terroir/exceptions/domain";
 
@@ -28,6 +34,8 @@ const TestDTO = t.Object({
 });
 
 const TestSchema = Schema.make(TestDTO);
+
+type TestInput = Omit<t.Static<typeof TestDTO>, keyof IRawEntity>;
 
 // 2. Define Value Object
 class TestValueObject extends ValueObject<string, typeof TestDTO> {
@@ -91,6 +99,21 @@ class TestEntity extends Entity<typeof TestDTO> {
 
 	public override [EntityContext](name: string): IValueObjectMetadata {
 		return { name, source: this[EntitySource] };
+	}
+
+	public [EntityFactorySymbol](
+		data: TestInput,
+		initialProperties?: EntityDTO,
+	): this {
+		return TestEntity.create({
+			...(initialProperties ?? makeEntity()),
+			simpleField: data.simpleField,
+			valueObjectField: TestValueObject.create(data.valueObjectField),
+			arrayField: data.arrayField,
+			arrayValueObjectField: data.arrayValueObjectField.map((v) =>
+				TestValueObject.create(v),
+			),
+		}) as this;
 	}
 
 	public static create(
