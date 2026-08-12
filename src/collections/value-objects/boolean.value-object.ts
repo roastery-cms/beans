@@ -1,5 +1,5 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { Schema } from "@roastery/terroir/schema";
 import type { BooleanDTO } from "../dtos";
 import { BooleanSchema } from "../schemas";
@@ -28,7 +28,7 @@ import { BooleanSchema } from "../schemas";
 export class BooleanVO extends ValueObject<boolean, typeof BooleanDTO> {
 	protected override readonly schema: Schema<typeof BooleanDTO> = BooleanSchema;
 
-	protected constructor(value: boolean, info: IValueObjectMetadata) {
+	protected constructor(value: boolean, info: IValueObjectContext) {
 		super(value, info);
 	}
 
@@ -39,7 +39,7 @@ export class BooleanVO extends ValueObject<boolean, typeof BooleanDTO> {
 	 * @param info - Metadata for error context.
 	 * @throws `InvalidPropertyException` — when `value` is not a boolean.
 	 */
-	public static make(value: boolean, info: IValueObjectMetadata): BooleanVO {
+	public static make(value: boolean, info: IValueObjectContext): BooleanVO {
 		const newVO = new BooleanVO(value, info);
 
 		newVO.validate();
@@ -52,7 +52,7 @@ export class BooleanVO extends ValueObject<boolean, typeof BooleanDTO> {
 	 *
 	 * @param info - Metadata for error context.
 	 */
-	public static truthy(info: IValueObjectMetadata): BooleanVO {
+	public static truthy(info: IValueObjectContext): BooleanVO {
 		return BooleanVO.make(true, info);
 	}
 
@@ -61,7 +61,7 @@ export class BooleanVO extends ValueObject<boolean, typeof BooleanDTO> {
 	 *
 	 * @param info - Metadata for error context.
 	 */
-	public static falsy(info: IValueObjectMetadata): BooleanVO {
+	public static falsy(info: IValueObjectContext): BooleanVO {
 		return BooleanVO.make(false, info);
 	}
 
@@ -75,7 +75,7 @@ export class BooleanVO extends ValueObject<boolean, typeof BooleanDTO> {
 	 *   `false`; everything else maps to `true`.
 	 * @param info - Metadata for error context.
 	 */
-	public static from(value: unknown, info: IValueObjectMetadata): BooleanVO {
+	public static from(value: unknown, info: IValueObjectContext): BooleanVO {
 		return BooleanVO.make(!!value, info);
 	}
 }

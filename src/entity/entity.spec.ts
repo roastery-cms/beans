@@ -3,12 +3,7 @@ import { Entity } from "./entity";
 import type { IRawEntity } from "./types";
 import { Schema } from "@roastery/terroir/schema";
 import { t } from "@roastery/terroir";
-import {
-	EntityFactory as EntityFactorySymbol,
-	EntitySchema,
-	EntitySource,
-	EntityStorage,
-} from "./symbols";
+import { EntitySchema, EntitySource, EntityStorage } from "./symbols";
 import { makeEntity } from "./factories";
 import type { EntityDTO } from "./dtos";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
@@ -21,20 +16,11 @@ const TestDTO = t.Object({
 });
 const TestSchema = Schema.make(TestDTO);
 
-type TestInput = Omit<t.Static<typeof TestDTO>, keyof IRawEntity>;
-
 class TestEntity extends Entity<typeof TestDTO> {
 	public readonly [EntitySchema] = TestSchema;
 
 	public constructor(data: EntityDTO) {
 		super(data, "test");
-	}
-
-	public [EntityFactorySymbol](
-		_data: TestInput,
-		initialProperties?: EntityDTO,
-	): this {
-		return new TestEntity(initialProperties ?? makeEntity()) as this;
 	}
 
 	static make(data: IRawEntity) {

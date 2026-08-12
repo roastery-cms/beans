@@ -2,8 +2,8 @@
  * Symbol that keys the abstract validation-schema property on every {@link Entity}.
  *
  * Subclasses bind `this[EntitySchema]` to a concrete `Schema.make(...)` instance
- * so that {@link Mapper.toDTO} can validate the produced DTO against the entity's
- * declared shape without any extra registry. Because the property is symbol-keyed,
+ * so a payload can be validated against the entity's declared shape without any
+ * extra registry. Because the property is symbol-keyed,
  * it stays out of the DTO produced by the mapper (which iterates only string keys
  * and strips the `_` / `__` prefixes).
  *

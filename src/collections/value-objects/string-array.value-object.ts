@@ -1,5 +1,5 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { Schema } from "@roastery/terroir/schema";
 import type { StringArrayDTO } from "../dtos";
 import { StringArraySchema } from "../schemas";
@@ -26,7 +26,7 @@ export class StringArrayVO extends ValueObject<
 	protected override readonly schema: Schema<typeof StringArrayDTO> =
 		StringArraySchema;
 
-	protected constructor(value: string[], info: IValueObjectMetadata) {
+	protected constructor(value: string[], info: IValueObjectContext) {
 		super(value, info);
 	}
 
@@ -39,7 +39,7 @@ export class StringArrayVO extends ValueObject<
 	 */
 	public static make(
 		value: string[],
-		info: IValueObjectMetadata,
+		info: IValueObjectContext,
 	): StringArrayVO {
 		const newVO = new StringArrayVO(value, info);
 

@@ -1,5 +1,5 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { Schema } from "@roastery/terroir/schema";
 import type { UrlDTO } from "../dtos";
 import { UrlSchema } from "../schemas";
@@ -23,7 +23,7 @@ import { UrlSchema } from "../schemas";
 export class UrlVO extends ValueObject<string, typeof UrlDTO> {
 	protected override readonly schema: Schema<typeof UrlDTO> = UrlSchema;
 
-	protected constructor(value: string, info: IValueObjectMetadata) {
+	protected constructor(value: string, info: IValueObjectContext) {
 		super(value, info);
 	}
 
@@ -34,7 +34,7 @@ export class UrlVO extends ValueObject<string, typeof UrlDTO> {
 	 * @param info - Metadata for error context.
 	 * @throws `InvalidPropertyException` — when `value` is not a valid HTTP/HTTPS URL.
 	 */
-	public static make(value: string, info: IValueObjectMetadata): UrlVO {
+	public static make(value: string, info: IValueObjectContext): UrlVO {
 		const newVO = new UrlVO(value, info);
 
 		newVO.validate();

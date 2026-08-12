@@ -1,16 +1,21 @@
 # @roastery/beans
 
-DDD building blocks for the [Roastery CMS](https://github.com/roastery-cms) ecosystem — base abstractions for **Entities**, **Value Objects**, **DTOs**, **Schemas**, and **Mappers**.
+DDD building blocks for the [Roastery CMS](https://github.com/roastery-cms) ecosystem — base abstractions for **Entities**, **Value Objects**, **DTOs**, and **Schemas**.
 
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
+
+> ### ⚠️ The entity pillar is being rewritten
+>
+> `Mapper`, `ParseEntityToDTOService` and `EntityUpdater` have been **removed**. They were the only serialisation and update paths for `Entity`, so the class documented below is now a **validation-only** base: it guarantees a well-formed identity and well-formed value-objects, and nothing else — there is no longer a supported way to turn one into a DTO.
+>
+> Their replacement is `BetterEntity` (`src/entity/better-entity.ts`), a blueprint-driven base that owns its own `toJSON` / `fromJSON` / `set` / `setMany`. It is **not exported yet** — it lands in these barrels once its API settles. Until then, treat `Entity` as frozen and prefer not to build new domain models on it. See `docs/entity-v1-vs-v2.md` for the full comparison.
 
 ## Overview
 
 **beans** provides the foundational primitives for building domain models in TypeScript:
 
-- **Entity** — Abstract base class with built-in `id` (UUID v7), `createdAt`, and `updatedAt` fields, using Symbol-based metadata to avoid property collisions.
+- **Entity** — Abstract base class with built-in `id` (UUID v7), `createdAt`, and `updatedAt` fields, using Symbol-based metadata to avoid property collisions. *(Validation-only; see the notice above.)*
 - **ValueObject** — Immutable, validated wrapper around a value. Throws `InvalidPropertyException` on invalid data.
-- **Mapper** — Bidirectional conversion between Entities and DTOs, with schema validation on output.
 - **Collections** — Ready-to-use Value Objects, DTOs, and Schemas for common types (UUID, email, slug, datetime, etc.).
 
 ## Technologies
@@ -63,9 +68,8 @@ Abstract base class that every domain entity extends. Provides `id`, `createdAt`
 
 ```typescript
 import { Entity } from "@roastery/beans";
-import { EntitySchema, EntityContext, EntityFactory } from "@roastery/beans/entity/symbols";
+import { EntitySchema, EntityContext } from "@roastery/beans/entity/symbols";
 import type { EntityDTO } from "@roastery/beans/entity/dtos";
-import { makeEntity } from "@roastery/beans/entity/factories";
 import { Schema } from "@roastery/terroir/schema";
 import { t } from "@roastery/terroir";
 import { UuidDTO, DateTimeDTO, StringDTO, SlugDTO } from "@roastery/beans/collections";
@@ -103,14 +107,10 @@ class Post extends Entity<typeof PostDTO> {
     this._title = DefinedStringVO.make(data.title, this[EntityContext]("title"));
     this._slug = SlugVO.make(data.slug, this[EntityContext]("slug"));
   }
-
-  public [EntityFactory](data: PostInput, initialProperties?: EntityDTO): this {
-    return new Post({ ...(initialProperties ?? makeEntity()), ...data }) as this;
-  }
 }
 ```
 
-The entity-type tag (`"post"`) is passed as the second argument to `super(...)` and stored under `this[EntitySource]` by the base class — there is no need for a `[EntitySource]` class field on the subclass. The `[EntitySchema]` field is `abstract` on `Entity`, so every subclass must bind it to its own `Schema.make(...)` instance. `[EntityFactory]` is `abstract` too — every subclass implements it so generic consumers holding an entity instance (e.g. `EntityUpdater`) can rebuild it without a separately-wired factory function.
+The entity-type tag (`"post"`) is passed as the second argument to `super(...)` and stored under `this[EntitySource]` by the base class — there is no need for a `[EntitySource]` class field on the subclass. The `[EntitySchema]` field is `abstract` on `Entity`, so every subclass must bind it to its own `Schema.make(...)` instance — it still validates, even though nothing in the package converts the entity to a DTO any more.
 
 ### Symbols
 
@@ -120,7 +120,6 @@ The entity-type tag (`"post"`) is passed as the second argument to `super(...)` 
 | `EntitySchema` | Holds the entity's validation `Schema` instance |
 | `EntityContext` | Returns `IValueObjectMetadata` for a given property name |
 | `EntityStorage` | Accessor to the entity's internal key-value store |
-| `EntityFactory` | Abstract self-rebuild method: `(data, initialProperties?) => this` |
 
 ### EntityStorage
 
@@ -180,28 +179,6 @@ const data = makeEntity();
 // { id: "<uuid-v7>", createdAt: "<iso-string>", updatedAt: undefined }
 ```
 
-### EntityUpdater
-
-Applies field-level updates by round-tripping the entity through the `Mapper`: serialize to DTO, mutate the requested field, validate against the entity's schema, stamp `updatedAt`, and rebuild via the entity's own `[EntityFactory]` method. Rebuilding (instead of mutating in place) keeps every update flowing through the same value-object validation as initial construction. Successive updates accumulate — each effective call replaces the managed instance, exposed via `updater.current`.
-
-```typescript
-import { EntityUpdater } from "@roastery/beans/entity";
-
-// Post implements `[EntityFactory]` — see the Entity section above.
-const updater = new EntityUpdater(post);
-const renamed = updater.run("title", "New title");
-// renamed.updatedAt is freshly stamped; id/createdAt are preserved.
-updater.current === renamed; // true
-```
-
-Guarantees:
-
-- **No-op updates don't stamp.** A value that is structurally equal to the current one — or that a value-object normalises back into it (e.g. `SlugVO` turning `"Hello World"` into the current `"hello-world"`) — returns the *same* instance with `updatedAt` untouched.
-- **Invalid values are rejected before `[EntityFactory]` runs.** The mutated DTO is matched against the entity's `[EntitySchema]`; a mismatch throws `InvalidDomainDataException`.
-- **Identity is enforced.** `run` only accepts domain fields (`id`/`createdAt`/`updatedAt` are excluded at the type level *and* rejected at runtime), and an `[EntityFactory]` implementation that ignores its `initialProperties` argument — regenerating `id`/`createdAt` — makes `run` throw `OperationFailedException`.
-
-> **Limitation.** Rebuilding goes through the DTO, so transient state the mapper excludes — `[EntityStorage]` contents and `__`-prefixed fields — resets to constructor defaults on every effective update.
-
 ---
 
 ## ValueObject
@@ -225,40 +202,6 @@ class FullName extends ValueObject<string, typeof StringDTO> {
   }
 }
 ```
-
----
-
-## Mapper
-
-Bidirectional conversion between Entities and DTOs. `toDTO` validates the output against the entity's schema; `toDomain` splits the DTO into entity props and domain data.
-
-```typescript
-import { Mapper } from "@roastery/beans/mapper";
-
-// Entity -> DTO (validated against schema)
-const dto = Mapper.toDTO(post);
-// { id: "...", createdAt: "...", title: "My Post", slug: "my-post" }
-
-// DTO -> Entity (factory receives domain data + entity props separately)
-const entity = Mapper.toDomain<typeof PostDTO>(dto, (data, entityProps) => {
-  return new Post({ ...entityProps, title: data.title, slug: data.slug });
-});
-```
-
-### Mapping conventions
-
-| Convention | Behavior |
-|------------|----------|
-| `_property` | Stripped to `property` in DTO output |
-| `__property` | Ignored entirely (internal metadata) |
-| `ValueObject` instances | Extracted to `.value` |
-| `Schema` instances | Replaced with `.toString()` |
-| Nested `Entity` instances | Recursively converted |
-| Objects with `toDTO()` | Calls `.toDTO()` recursively |
-| Arrays | Each element processed recursively |
-| `null` / `undefined` / primitives | Passed through unchanged |
-
-Symbol-keyed properties (`[EntitySource]`, `[EntitySchema]`, `[EntityContext]`, `[EntityStorage]`) never appear in the produced DTO because the underlying walk only iterates string keys.
 
 ---
 
@@ -328,18 +271,16 @@ EmailSchema.match("invalid");          // false
 
 ```typescript
 // Top-level pillars
-import { Entity, Mapper, ValueObject } from "@roastery/beans";
+import { Entity, ValueObject } from "@roastery/beans";
 
 // Entity subpaths
-import { EntityUpdater } from "@roastery/beans/entity";
-import { EntitySource, EntitySchema, EntityContext, EntityStorage, EntityFactory as EntityFactorySymbol } from "@roastery/beans/entity/symbols";
+import { EntitySource, EntitySchema, EntityContext, EntityStorage } from "@roastery/beans/entity/symbols";
 import { AutoUpdate } from "@roastery/beans/entity/decorators";
 import { makeEntity } from "@roastery/beans/entity/factories";
 import { deepEquals, generateUUID, slugify } from "@roastery/beans/entity/helpers";
-import { ParseEntityToDTOService } from "@roastery/beans/entity/services";
 import { EntitySchema as BaseEntitySchema } from "@roastery/beans/entity/schemas"; // runtime Schema for the base EntityDTO
 import { EntityDTO } from "@roastery/beans/entity/dtos";
-import type { EntityFactory, EntityUpdaterInput, IEntity, IRawEntity } from "@roastery/beans/entity/types";
+import type { IEntity, IRawEntity } from "@roastery/beans/entity/types";
 
 // ValueObject metadata
 import type { IValueObjectMetadata } from "@roastery/beans/value-object/types";
@@ -350,7 +291,7 @@ import { UuidDTO, EmailDTO } from "@roastery/beans/collections";    // DTOs
 import { UuidSchema, EmailSchema } from "@roastery/beans/collections"; // Schemas
 ```
 
-> **Naming note.** `EntitySchema` exists in two forms: the **symbol** (under `/entity/symbols`) is the property key on `Entity`, while the homonymous **runtime instance** (under `/entity/schemas`) is `Schema.make(EntityDTO)` validating the base shape. The same applies to `EntityStorage` — symbol vs runtime class — and to `EntityFactory` — symbol (under `/entity/symbols`, keys the entity's abstract self-rebuild method) vs **type** (under `/entity/types`, the free-standing factory signature `EntityUpdater` used to accept before it started calling the symbol directly). The pairing is intentional; alias one when you need both in scope.
+> **Naming note.** `EntitySchema` exists in two forms: the **symbol** (under `/entity/symbols`) is the property key on `Entity`, while the homonymous **runtime instance** (under `/entity/schemas`) is `Schema.make(EntityDTO)` validating the base shape. The same applies to `EntityStorage` — symbol vs runtime class. The pairing is intentional; alias one when you need both in scope.
 
 ---
 

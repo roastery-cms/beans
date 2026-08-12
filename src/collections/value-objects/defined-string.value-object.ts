@@ -1,5 +1,5 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { Schema } from "@roastery/terroir/schema";
 import type { StringDTO } from "../dtos";
 import { StringSchema } from "../schemas";
@@ -28,7 +28,7 @@ import { StringSchema } from "../schemas";
 export class DefinedStringVO extends ValueObject<string, typeof StringDTO> {
 	protected override readonly schema: Schema<typeof StringDTO> = StringSchema;
 
-	protected constructor(value: string, info: IValueObjectMetadata) {
+	protected constructor(value: string, info: IValueObjectContext) {
 		super(value, info);
 	}
 
@@ -41,7 +41,7 @@ export class DefinedStringVO extends ValueObject<string, typeof StringDTO> {
 	 */
 	public static make(
 		value: string,
-		info: IValueObjectMetadata,
+		info: IValueObjectContext,
 	): DefinedStringVO {
 		const newVO = new DefinedStringVO(value, info);
 

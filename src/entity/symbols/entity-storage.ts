@@ -4,8 +4,8 @@
  * Reading `this[EntityStorage]` from inside a subclass returns the entity's
  * `EntityStorage` runtime instance — the small `string → string` cache used to
  * park values that don't belong on the public DTO. Symbol-keyed access keeps the
- * accessor out of the iteration walk performed by {@link Mapper.toDTO}, so anything
- * stored here is automatically excluded from the validated DTO output.
+ * accessor out of any iteration over string keys, so anything stored here is
+ * automatically excluded from serialised output.
  *
  * **Naming note:** this symbol shares its name with the homonymous
  * `EntityStorage` *class* exported from `src/entity/entity-storage.ts`. The class

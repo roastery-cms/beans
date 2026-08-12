@@ -1,5 +1,5 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { Schema } from "@roastery/terroir/schema";
 import { slugify } from "@/entity/helpers";
 import type { SlugDTO } from "../dtos";
@@ -29,7 +29,7 @@ import { SlugSchema } from "../schemas";
 export class SlugVO extends ValueObject<string, typeof SlugDTO> {
 	protected override readonly schema: Schema<typeof SlugDTO> = SlugSchema;
 
-	protected constructor(value: string, info: IValueObjectMetadata) {
+	protected constructor(value: string, info: IValueObjectContext) {
 		super(value, info);
 	}
 
@@ -43,7 +43,7 @@ export class SlugVO extends ValueObject<string, typeof SlugDTO> {
 	 * @throws `InvalidPropertyException` — when the slugified output fails
 	 *   {@link SlugSchema} validation (e.g. an input that slugifies to the empty string).
 	 */
-	public static make(value: string, info: IValueObjectMetadata): SlugVO {
+	public static make(value: string, info: IValueObjectContext): SlugVO {
 		const newVO = new SlugVO(slugify(value), info);
 
 		newVO.validate();

@@ -1,4 +1,4 @@
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import type { Schema } from "@roastery/terroir/schema";
 import type { t } from "@roastery/terroir";
@@ -20,7 +20,7 @@ import type { t } from "@roastery/terroir";
  * @typeParam SchemaType - The TypeBox schema type that validates `ValueType`. Constrained to
  *   {@link t.TSchema}; flows into the {@link ValueObject.schema} field type.
  *
- * @see {@link IValueObjectMetadata} for the `info` payload the constructor consumes.
+ * @see {@link IValueObjectContext} for the `info` payload the constructor consumes.
  * @see {@link InvalidPropertyException} thrown by {@link ValueObject.validate} on schema mismatch.
  *
  * @example
@@ -31,7 +31,7 @@ import type { t } from "@roastery/terroir";
  * class FullName extends ValueObject<string, typeof StringDTO> {
  *   protected override readonly schema = StringSchema;
  *
- *   public static make(value: string, info: IValueObjectMetadata): FullName {
+ *   public static make(value: string, info: IValueObjectContext): FullName {
  *     const vo = new FullName(value, info);
  *     vo.validate();
  *     return vo;
@@ -58,7 +58,7 @@ export abstract class ValueObject<ValueType, SchemaType extends t.TSchema> {
 	 */
 	protected constructor(
 		public readonly value: ValueType,
-		protected readonly info: IValueObjectMetadata,
+		protected readonly info: IValueObjectContext,
 	) {}
 
 	/**

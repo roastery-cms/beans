@@ -2,9 +2,8 @@
  * Minimal data contract every entity satisfies — the three universal fields
  * stamped on by {@link Entity} (id + creation/update timestamps).
  *
- * Used as the structural base of {@link IEntity} and as the second-half of the
- * intersection in {@link Mapper.toDomain} (`dto: Input & IRawEntity`) so the
- * factory callback receives `IRawEntity` separately from the domain content.
+ * Used as the structural base of {@link IEntity}, and by `BetterEntity` to split
+ * a payload's identity from its domain content.
  *
  * All fields are `readonly` because callers should never mutate the raw shape;
  * mutations flow through the entity's own `update()` lifecycle instead.

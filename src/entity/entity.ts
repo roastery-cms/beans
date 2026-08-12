@@ -1,15 +1,14 @@
-import type { IEntity, IRawEntity } from "./types";
+import type { IEntity } from "./types";
 import {
 	EntitySource,
 	EntitySchema,
 	EntityContext,
 	EntityStorage,
-	EntityFactory as EntityFactorySymbol,
 } from "./symbols";
 import type { Schema } from "@roastery/terroir/schema";
 import { DateTimeVO, UuidVO } from "@/collections/value-objects";
 import type { EntityDTO } from "./dtos";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { t } from "@roastery/terroir";
 import { EntityStorage as EntityStorageImpl } from "./entity-storage";
 
@@ -22,19 +21,25 @@ import { EntityStorage as EntityStorageImpl } from "./entity-storage";
  * does not belong in the public DTO (cached lookups, transient flags) goes through
  * the per-instance {@link EntityStorage} accessor instead.
  *
- * The class is parameterised by the entity's TypeBox schema type so that
- * {@link Mapper.toDTO} can extract the runtime DTO shape directly from
- * `entity[EntitySchema]`. Subclasses **must** provide:
+ * The class is parameterised by the entity's TypeBox schema type so the runtime
+ * DTO shape can be read straight off `entity[EntitySchema]`. Subclasses
+ * **must** provide:
  *
  * - `public readonly [EntitySource]` — the entity-type name (e.g. `"post"`).
  * - `public readonly [EntitySchema]` — the {@link Schema} validating the DTO.
- * - `public [EntityFactory]` — rebuilds an instance of the subclass's own type
- *   from domain-content input; see {@link EntityFactory} (the symbol).
+ *
+ * **This base no longer serialises.** `Mapper` and `ParseEntityToDTOService`,
+ * which turned an `Entity` into its DTO, were removed along with
+ * `EntityUpdater` — the whole v1 pillar is being retired in favour of
+ * `BetterEntity` (`src/entity/better-entity.ts`), which owns its own
+ * `toJSON` / `fromJSON`. What remains here is a validation-only base: it
+ * guarantees a well-formed identity and well-formed value-objects, and nothing
+ * else. New entities should be written against `BetterEntity`.
  *
  * Construction is `protected`: subclasses receive an `EntityDTO`-shaped payload
  * (`id`, `createdAt`, `updatedAt`) plus their own domain fields, and must call
  * `super(entityDto, entitySource)` exactly once. The `[EntityContext](name)`
- * helper builds the {@link IValueObjectMetadata} payload that downstream value
+ * helper builds the {@link IValueObjectContext} payload that downstream value
  * objects consume — call it whenever you instantiate a VO from inside a subclass.
  *
  * @typeParam SchemaType - The TypeBox schema describing the entity's full DTO.
@@ -48,16 +53,13 @@ import { EntityStorage as EntityStorageImpl } from "./entity-storage";
  * @see {@link EntityContext} — symbol keying the metadata-builder method.
  * @see {@link EntityStorage} — symbol keying the per-instance storage (homonymous with the
  *   runtime `EntityStorage` class).
- * @see {@link EntityFactory} — symbol keying the abstract self-rebuild method (homonymous with the
- *   `EntityFactory` type in `src/entity/types/entity-factory.ts`).
- * @see {@link Mapper} — `toDTO` / `toDomain` round-trip an `Entity` against its DTO.
+ * @see `BetterEntity` in `src/entity/better-entity.ts` — the v2 base that supersedes this one.
  *
  * @example
  * ```ts
  * import { Entity } from "@roastery/beans";
- * import { EntitySource, EntitySchema, EntityContext, EntityFactory } from "@roastery/beans/entity";
+ * import { EntitySource, EntitySchema, EntityContext } from "@roastery/beans/entity";
  * import type { EntityDTO } from "@roastery/beans/entity";
- * import { makeEntity } from "@roastery/beans/entity/factories";
  * import { DefinedStringVO, StringDTO } from "@roastery/beans/collections";
  * import { Schema } from "@roastery/terroir/schema";
  * import { t } from "@roastery/terroir";
@@ -75,34 +77,17 @@ import { EntityStorage as EntityStorageImpl } from "./entity-storage";
  *     super(data, "post");
  *     this._title = DefinedStringVO.make(data.title, this[EntityContext]("title"));
  *   }
- *
- *   public [EntityFactory](data: PostInput, initialProperties?: EntityDTO): this {
- *     return new Post({ ...(initialProperties ?? makeEntity()), ...data }) as this;
- *   }
  * }
  * ```
  */
 export abstract class Entity<SchemaType extends t.TSchema>
 	implements IEntity<SchemaType>
 {
-	/** Stable entity-type identifier (e.g. `"post"`, `"user"`). Set in the constructor from the `entitySource` argument and read by {@link Mapper} to build error context. */
+	/** Stable entity-type identifier (e.g. `"post"`, `"user"`). Set in the constructor from the `entitySource` argument and used as the `source` of every validation error the entity raises. */
 	public readonly [EntitySource]: string;
 
 	/** Validation schema for this entity's DTO. **Abstract** — every subclass binds it to the appropriate `Schema.make(...)` instance. */
 	public abstract readonly [EntitySchema]: Schema<SchemaType>;
-
-	/**
-	 * Rebuilds an instance of this entity's own type from domain-content
-	 * input, optionally preserving the base props of an already-persisted
-	 * entity. **Abstract** — every subclass implements it, typically
-	 * `new Subclass({ ...(initialProperties ?? makeEntity()), ...data }) as this`.
-	 * Declared as a method (not a property) — see
-	 * {@link EntityFactory} (the symbol) for why the property form breaks.
-	 */
-	public abstract [EntityFactorySymbol](
-		data: Omit<t.Static<SchemaType>, keyof IRawEntity>,
-		initialProperties?: EntityDTO,
-	): this;
 
 	/** Per-instance transient `string → string` store. Created fresh in the constructor; access from subclasses via `this[EntityStorage]`. */
 	protected readonly [EntityStorage]: EntityStorageImpl;
@@ -137,7 +122,7 @@ export abstract class Entity<SchemaType extends t.TSchema>
 	 *
 	 * @param data - Base DTO carrying `id`, `createdAt` (required) and `updatedAt` (optional).
 	 * @param entitySource - The entity-type identifier; assigned to `this[EntitySource]`
-	 *   and used as `IValueObjectMetadata.source` for every VO this entity instantiates.
+	 *   and used as `IValueObjectContext.source` for every VO this entity instantiates.
 	 *
 	 * @throws `InvalidPropertyException` — when `data.id` is not a UUID, or any timestamp
 	 *   does not parse as ISO 8601.
@@ -172,14 +157,14 @@ export abstract class Entity<SchemaType extends t.TSchema>
 	}
 
 	/**
-	 * Builds a fresh {@link IValueObjectMetadata} payload tagged with the entity's
+	 * Builds a fresh {@link IValueObjectContext} payload tagged with the entity's
 	 * source name. Subclasses use it whenever they instantiate a value-object so
 	 * validation errors carry both the field name and the owning entity type.
 	 *
 	 * @param name - Property name to embed (e.g. `"title"`, `"slug"`).
 	 * @returns A `{ name, source }` literal where `source` is `this[EntitySource]`.
 	 */
-	public [EntityContext](name: string): IValueObjectMetadata {
+	public [EntityContext](name: string): IValueObjectContext {
 		return {
 			name,
 			source: this[EntitySource],

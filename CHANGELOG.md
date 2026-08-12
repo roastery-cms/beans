@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **BREAKING** — `Mapper` (`@roastery/beans` root and `@roastery/beans/mapper`), `ParseEntityToDTOService` (`@roastery/beans/entity/services`) and `EntityUpdater` (`@roastery/beans/entity`). The v1 entity pillar is being retired in favour of the blueprint-driven `BetterEntity`, which owns its own serialisation (`toJSON` / `fromJSON`) and field updates (`set` / `setMany`). Since `Mapper.toDTO` was the only supported way to serialise an `Entity`, the remaining v1 base is **validation-only**: it still guarantees a well-formed identity and well-formed value-objects, but no longer produces a DTO
+- **BREAKING** — `EntityFactory` symbol (`@roastery/beans/entity/symbols`) and the `EntityFactory`, `EntityDTOOf` and `EntityUpdaterInput` types (`@roastery/beans/entity/types`). All four existed solely to let `EntityUpdater` rebuild an entity; the abstract `[EntityFactory]` member is gone from `Entity` and `IEntity`, so subclasses no longer have to implement it
+
+### Notes
+
+- `BetterEntity` is **not exported** yet — it lands in the barrels once its API settles. See `docs/entity-v1-vs-v2.md` for the comparison between the two bases and the migration notes
+
+## [0.1.3] - 2026-07-14
+
+### Changed
+
+- `Entity`/`IEntity`'s abstract `[EntityFactory]` method now returns `Entity<SchemaType>` / `IEntity<SchemaType>` instead of `this`. Existing subclasses that implement it as `[EntityFactory](data, initialProperties?): this` are unaffected (still a valid covariant override), but a subclass is no longer required to route through `this` at all — it can implement `[EntityFactory]` as a one-line delegate to a plain `public static build: EntityFactory<Subclass, SubclassInput>` value (e.g. `public [EntityFactory](data, initialProperties?) { return Subclass.build(data, initialProperties); }`), keeping the actual rebuild logic in an ordinary static factory instead of an instance method
+- `EntityUpdater.run` asserts the rebuilt entity as `EntityType` when invoking `[EntityFactory]` — a consequence of the return type above no longer being `this`, generic code holding an `EntityType extends IEntity<t.TSchema>` only sees the widened base return from the type system, so the assertion (backed by the existing `id`/`createdAt` identity check) restores the concrete type
+
 ## [0.1.2] - 2026-07-06
 
 ### Added

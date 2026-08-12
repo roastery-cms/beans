@@ -5,11 +5,11 @@
  * value-object so that validation errors carry both the field name and the
  * owning entity's `[EntitySource]` tag. Using a symbol (rather than a string
  * method name) prevents the helper from colliding with user-defined fields and
- * keeps it from leaking into the DTO produced by {@link Mapper.toDTO} (which
- * strips symbol-keyed properties).
+ * keeps it out of any iteration over the entity's string keys, so it never
+ * leaks into a serialised payload.
  *
  * @see {@link Entity}.[EntityContext] — the method this symbol keys.
- * @see {@link IValueObjectMetadata} — the shape returned by the keyed method.
+ * @see {@link IValueObjectContext} — the shape returned by the keyed method.
  *
  * @example
  * ```ts

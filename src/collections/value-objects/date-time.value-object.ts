@@ -1,5 +1,5 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { Schema } from "@roastery/terroir/schema";
 import type { DateTimeDTO } from "../dtos";
 import { DateTimeSchema } from "../schemas";
@@ -28,7 +28,7 @@ export class DateTimeVO extends ValueObject<string, typeof DateTimeDTO> {
 	protected override readonly schema: Schema<typeof DateTimeDTO> =
 		DateTimeSchema;
 
-	protected constructor(value: string, info: IValueObjectMetadata) {
+	protected constructor(value: string, info: IValueObjectContext) {
 		super(value, info);
 	}
 
@@ -39,7 +39,7 @@ export class DateTimeVO extends ValueObject<string, typeof DateTimeDTO> {
 	 * @param info - Metadata for error context.
 	 * @throws `InvalidPropertyException` — when `value` is not a valid ISO 8601 date-time.
 	 */
-	public static make(value: string, info: IValueObjectMetadata): DateTimeVO {
+	public static make(value: string, info: IValueObjectContext): DateTimeVO {
 		const newVO = new DateTimeVO(value, info);
 
 		newVO.validate();
@@ -52,7 +52,7 @@ export class DateTimeVO extends ValueObject<string, typeof DateTimeDTO> {
 	 *
 	 * @param info - Metadata for error context.
 	 */
-	public static now(info: IValueObjectMetadata): DateTimeVO {
+	public static now(info: IValueObjectContext): DateTimeVO {
 		return DateTimeVO.make(new Date().toISOString(), info);
 	}
 }

@@ -2,13 +2,13 @@
  * Symbol that keys the entity-type identifier on every {@link Entity}.
  *
  * Subclasses set `this[EntitySource]` to a stable, lower-case string (e.g.
- * `"post"`, `"user"`) which is propagated as `IValueObjectMetadata.source` to
- * every value-object the entity instantiates. {@link Mapper.toDTO} also reads it
- * to build the message of `InvalidDomainDataException` when DTO validation fails,
- * so the value should identify the *entity type*, not an instance id.
+ * `"post"`, `"user"`) which is propagated as `IValueObjectContext.source` to
+ * every value-object the entity instantiates, and it is what names the entity in
+ * the message of any exception it raises, so the value should identify the
+ * *entity type*, not an instance id.
  *
  * @see {@link Entity}.[EntitySource] — the property this symbol keys.
- * @see {@link IValueObjectMetadata} — `source` field is populated from this symbol.
+ * @see {@link IValueObjectContext} — `source` field is populated from this symbol.
  *
  * @example
  * ```ts

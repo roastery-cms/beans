@@ -1,5 +1,5 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectMetadata } from "@/value-object/types";
+import type { IValueObjectContext } from "@/value-object/types";
 import type { Schema } from "@roastery/terroir/schema";
 import { generateUUID } from "@/entity/helpers";
 import type { UuidDTO } from "../dtos";
@@ -28,7 +28,7 @@ import { UuidSchema } from "../schemas";
 export class UuidVO extends ValueObject<string, typeof UuidDTO> {
 	protected override readonly schema: Schema<typeof UuidDTO> = UuidSchema;
 
-	protected constructor(value: string, info: IValueObjectMetadata) {
+	protected constructor(value: string, info: IValueObjectContext) {
 		super(value, info);
 	}
 
@@ -39,7 +39,7 @@ export class UuidVO extends ValueObject<string, typeof UuidDTO> {
 	 * @param info - Metadata for error context.
 	 * @throws `InvalidPropertyException` — when `value` is not a valid UUID.
 	 */
-	public static make(value: string, info: IValueObjectMetadata): UuidVO {
+	public static make(value: string, info: IValueObjectContext): UuidVO {
 		const newVO = new UuidVO(value, info);
 
 		newVO.validate();
@@ -52,7 +52,7 @@ export class UuidVO extends ValueObject<string, typeof UuidDTO> {
 	 *
 	 * @param info - Metadata for error context.
 	 */
-	public static generate(info: IValueObjectMetadata): UuidVO {
+	public static generate(info: IValueObjectContext): UuidVO {
 		return UuidVO.make(generateUUID(), info);
 	}
 }
