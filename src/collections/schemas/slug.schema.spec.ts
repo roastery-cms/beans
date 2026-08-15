@@ -1,24 +1,25 @@
 import { describe, expect, it } from "bun:test";
+import { SchemaManager } from "@roastery/terroir/schema";
 import { SlugSchema } from "./slug.schema";
 
 describe("SlugSchema", () => {
 	it("should validate a simple slug", () => {
-		expect(SlugSchema.match("my-cool-post")).toBe(true);
+		expect(SchemaManager.match(SlugSchema, "my-cool-post")).toBe(true);
 	});
 
 	it("should validate a single-word slug", () => {
-		expect(SlugSchema.match("post")).toBe(true);
+		expect(SchemaManager.match(SlugSchema, "post")).toBe(true);
 	});
 
 	it("should invalidate an empty string", () => {
-		expect(SlugSchema.match("")).toBe(false);
+		expect(SchemaManager.match(SlugSchema, "")).toBe(false);
 	});
 
 	it("should invalidate a string with spaces", () => {
-		expect(SlugSchema.match("my cool post")).toBe(false);
+		expect(SchemaManager.match(SlugSchema, "my cool post")).toBe(false);
 	});
 
 	it("should invalidate a number", () => {
-		expect(SlugSchema.match(123)).toBe(false);
+		expect(SchemaManager.match(SlugSchema, 123)).toBe(false);
 	});
 });

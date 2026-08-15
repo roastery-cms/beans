@@ -1,18 +1,23 @@
-import { SimpleUrlDTO } from "@/collections/dtos/simple-url.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link SimpleUrlDTO} (any-protocol URI).
+ * TypeBox schema for any-protocol URI strings (e.g. `redis://`, `mongodb://`,
+ * `s3://`) — the looser sibling of {@link UrlSchema}, which restricts to HTTP/HTTPS.
  *
- * @example
- * ```ts
- * import { SimpleUrlSchema } from "@roastery/beans/collections";
+ * Validation is delegated to the `"simple-url"` format registered in
+ * `@roastery/terroir/schema/formats`. Use this schema for connection strings and
+ * non-browser URIs; reach for {@link UrlSchema} when you need a URL safe to embed
+ * in a web page.
  *
- * SimpleUrlSchema.match("redis://localhost:6379"); // true
- * SimpleUrlSchema.match("not a url");              // false
- * ```
- *
- * @see {@link SimpleUrlDTO}
  * @see {@link UrlSchema} — HTTP/HTTPS-only counterpart.
  */
-export const SimpleUrlSchema = Schema.make(SimpleUrlDTO);
+export const SimpleUrlSchema = t.String({
+	description:
+		"A URI of any protocol (HTTP, Redis, Mongo, etc.). Use UrlSchema for HTTP/HTTPS-only.",
+	examples: ["redis://localhost:6739"],
+	format: "simple-url",
+});
+
+/** Static type of {@link SimpleUrlSchema} — equivalent to `string`. */
+export type SimpleUrlSchema = ToDTO<typeof SimpleUrlSchema>;

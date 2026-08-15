@@ -3,36 +3,34 @@
  *
  * `@roastery/beans` — DDD building blocks for the Roastery CMS ecosystem.
  *
- * The package exposes four import surfaces; pick the one that matches the layer
- * you are working at:
+ * The package exposes these import surfaces; pick the one that matches the
+ * layer you are working at:
  *
- * - `"@roastery/beans"` (this barrel) — the three top-level pillars
- *   ({@link Entity}, {@link Mapper}, {@link ValueObject}). Almost every consumer
- *   starts here.
- * - `"@roastery/beans/entity"` — the entity pillar ({@link Entity} plus the
- *   `EntityUpdater` update helper). Subpaths: `/entity/dtos`,
- *   `/entity/schemas`, `/entity/decorators` (`@AutoUpdate`),
- *   `/entity/factories` (`makeEntity`), `/entity/helpers`
- *   (`deepEquals`, `generateUUID`, `slugify`), `/entity/services`
- *   (`ParseEntityToDTOService`), `/entity/symbols` (the five symbols),
- *   `/entity/types` (`IEntity`, `IRawEntity`, `EntityFactory`,
- *   `EntityDTOOf`, `EntityUpdaterInput`).
- * - `"@roastery/beans/mapper"` — the {@link Mapper} namespace.
- * - `"@roastery/beans/value-object"` — the abstract {@link ValueObject} base
- *   (with `IValueObjectMetadata` one level deeper at `/value-object/types`).
- * - `"@roastery/beans/collections"` — ready-to-use DTOs (`/collections/dtos`),
- *   Schemas (`/collections/schemas`) and Value Objects (`/collections/value-objects`)
- *   for the most common scalar/array/object shapes.
+ * - `"@roastery/beans"` (this barrel) — the two top-level pillars
+ *   ({@link Entity}, {@link ValueObject}). Almost every consumer starts here.
+ * - `"@roastery/beans/entity"` — the entity pillar ({@link Entity}). Subpaths:
+ *   `/entity/helpers` (`blueprint`, `deepEquals`, `generateUUID`) and
+ *   `/entity/types` (`IEntity`, `IRawEntity`, `AccessorsOf`, …).
+ * - `"@roastery/beans/value-object"` — the abstract {@link ValueObject} base.
+ *   Subpaths: `/value-object/helpers` (`metaOf`) and `/value-object/types`
+ *   (`IValueObjectContext`, `IValueObjectMetadata`).
+ * - `"@roastery/beans/collections/schemas"` and `"…/collections/value-objects"`
+ *   — ready-to-use TypeBox schemas and Value Objects for the most common
+ *   scalar/array shapes.
+ *
+ * The symbols keying the bases' internal slots (`Context`, `Demo`, `Meta`,
+ * `Properties`, `Source`, `Storage`) are **not** declared here — they come from
+ * `"@roastery/terroir/symbols"`, the ecosystem's single declaration site.
+ * Symbol equality is by reference, so a local redeclaration would read the
+ * wrong slot and silently return `undefined`.
  *
  * The intentionally thin root barrel keeps `import { Entity } from "@roastery/beans"`
  * unambiguous; everything more specific lives behind a subpath.
  *
  * Re-exports:
- * - {@link Entity} — abstract base for domain entities.
- * - {@link Mapper} — Entity ⇄ DTO bridge (`toDTO`, `toDomain`).
- * - {@link ValueObject} — abstract base for immutable, validated wrappers.
+ * - {@link Entity} — abstract, blueprint-driven base for domain entities.
+ * - {@link ValueObject} — abstract, self-validating base for immutable domain values.
  */
 
 export { Entity } from "./entity";
-export { Mapper } from "./mapper";
 export { ValueObject } from "./value-object";

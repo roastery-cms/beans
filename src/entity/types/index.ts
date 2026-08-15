@@ -1,20 +1,32 @@
 /**
  * @module @roastery/beans/entity/types
  *
- * Type-only re-exports for the entity contracts.
+ * Public types of the entity pillar. The supporting aliases the machinery is
+ * built from live in sibling `*.type.ts` files and stay out of this barrel —
+ * they are reachable through inference (and by direct path when needed).
  *
  * Re-exports:
- * - {@link IEntity} — behavioural contract over {@link IRawEntity} (adds the three symbol-keyed fields).
- * - {@link IRawEntity} — minimal data contract (`id`, `createdAt`, `updatedAt?`).
- * - {@link EntityFactory} — factory signature that builds an entity from its
- *   create input, optionally preserving base props; consumed by `EntityUpdater`.
- * - {@link EntityDTOOf} — resolves an entity type's plain-object DTO shape.
- * - {@link EntityUpdaterInput} — the DTO's domain-content slice, the input
- *   `EntityUpdater` requires of its factory.
+ * - {@link AccessorsOf} — the interface to merge for blueprint-derived accessors.
+ * - {@link BlueprintBuilder} — what `blueprint(shape)` returns, carrying `with`.
+ * - {@link EntityDefinition} — what `defineEntity()` returns.
+ * - {@link IEntity} — the behavioural contract of every entity.
+ * - {@link IRawEntity} — the serialized identity fields.
+ * - {@link PropertiesShapeBase} — the base constraint of every blueprint.
+ * - {@link PropertyRule} — the domain rule behind one blueprint property.
+ * - {@link RawContextOf} — the constructor payload of a subclass.
+ * - {@link RuledBlueprint} — a blueprint carrying its rules.
+ * - {@link RulesOf} — the rule map a blueprint may declare.
+ * - {@link SerializedEntity} — what `toJSON()` returns / `fromJSON` accepts.
  */
 
+export type { AccessorsOf } from "./accessors-of.type";
+export type { BlueprintBuilder } from "./blueprint-builder.type";
+export type { EntityDefinition } from "./entity-definition.type";
 export type { IEntity } from "./entity.interface";
+export type { PropertiesShapeBase } from "./properties-shape-base.type";
+export type { PropertyRule } from "./property-rule.type";
+export type { RawContextOf } from "./raw-context-of.type";
 export type { IRawEntity } from "./raw-entity.interface";
-export type { EntityFactory } from "./entity-factory";
-export type { EntityDTOOf } from "./entity-dto-of";
-export type { EntityUpdaterInput } from "./entity-updater-input";
+export type { RuledBlueprint } from "./ruled-blueprint.type";
+export type { RulesOf } from "./rules-of.type";
+export type { SerializedEntity } from "./serialized-entity.type";

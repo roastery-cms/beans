@@ -1,21 +1,24 @@
-import { SlugDTO } from "@/collections/dtos/slug.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link SlugDTO}.
+ * TypeBox schema for URL-safe slug strings.
  *
- * Note: this validator does not normalise the input — it only checks shape. To
- * auto-normalise via `slugify()` *and* validate, use {@link SlugVO.make} instead.
+ * Validation is delegated to the `"slug"` format registered in
+ * `@roastery/terroir/schema/formats`. Plus a hard `minLength: 1` so the empty
+ * string is always rejected.
  *
- * @example
- * ```ts
- * import { SlugSchema } from "@roastery/beans/collections";
+ * The slug **format** does not normalise the input; for the auto-slugified VO
+ * pipeline (`slugify(value)` → validate), use {@link SlugVO}.
  *
- * SlugSchema.match("my-cool-post"); // true
- * SlugSchema.match("My Cool Post"); // false (uppercase + spaces)
- * ```
- *
- * @see {@link SlugDTO}
- * @see {@link SlugVO}
+ * @see {@link SlugVO} — value-object that runs `slugify()` before validation.
  */
-export const SlugSchema = Schema.make(SlugDTO);
+export const SlugSchema = t.String({
+	description: "The unique slug identifier of the resource to query.",
+	examples: ["my-cool-post"],
+	format: "slug",
+	minLength: 1,
+});
+
+/** Static type of {@link SlugSchema} — equivalent to `string`. */
+export type SlugSchema = ToDTO<typeof SlugSchema>;

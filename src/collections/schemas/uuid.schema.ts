@@ -1,21 +1,21 @@
-import { UuidDTO } from "@/collections/dtos/uuid.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link UuidDTO}.
+ * TypeBox schema for UUID strings (any version).
  *
- * Accepts UUIDs of any version. The companion {@link UuidVO.generate} factory
- * produces v7 specifically (time-sortable) for entity ids.
+ * Validation is delegated to the `"uuid"` format registered in
+ * `@roastery/terroir/schema/formats`. The schema does not pin the UUID version,
+ * so callers receive the full `[1-5, 7-8]` range; the {@link UuidVO.generate}
+ * factory specifically produces v7 for the entity-id use case.
  *
- * @example
- * ```ts
- * import { UuidSchema } from "@roastery/beans/collections";
- *
- * UuidSchema.match("550e8400-e29b-41d4-a716-446655440000"); // true
- * UuidSchema.match("not-a-uuid");                            // false
- * ```
- *
- * @see {@link UuidDTO}
  * @see {@link UuidVO}
  */
-export const UuidSchema = Schema.make(UuidDTO);
+export const UuidSchema = t.String({
+	format: "uuid",
+	description: "A UUID string (any version).",
+	examples: ["550e8400-e29b-41d4-a716-446655440000"],
+});
+
+/** Static type of {@link UuidSchema} — equivalent to `string`. */
+export type UuidSchema = ToDTO<typeof UuidSchema>;

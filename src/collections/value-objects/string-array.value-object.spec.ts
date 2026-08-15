@@ -1,20 +1,28 @@
+import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import { describe, expect, it } from "bun:test";
 import { StringArrayVO } from "./string-array.value-object";
 
+const context = { name: "tags", source: "spec" };
+
 describe("StringArrayVO", () => {
-	it("should create a valid instance with strings", () => {
-		const vo = StringArrayVO.make(["one", "two"], {
-			name: "tags",
-			source: "domain",
-		});
-		expect(vo.value).toEqual(["one", "two"]);
+	it("wraps an array of strings", () => {
+		expect(new StringArrayVO(["ts", "ddd"], context).value).toEqual([
+			"ts",
+			"ddd",
+		]);
 	});
 
-	it("should create a valid instance with empty array", () => {
-		const vo = StringArrayVO.make([], {
-			name: "tags",
-			source: "domain",
-		});
-		expect(vo.value).toEqual([]);
+	it("accepts an empty array", () => {
+		expect(new StringArrayVO([], context).value).toEqual([]);
+	});
+
+	it("rejects a non-string element", () => {
+		expect(
+			() => new StringArrayVO([1] as unknown as string[], context),
+		).toThrow(InvalidPropertyException);
+	});
+
+	it("demo() falls back to an empty array", () => {
+		expect(StringArrayVO.demo(context).value).toEqual([]);
 	});
 });

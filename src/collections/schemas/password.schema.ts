@@ -1,20 +1,26 @@
-import { PasswordDTO } from "@/collections/dtos/password.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link PasswordDTO}.
+ * TypeBox schema for password strings, enforcing a baseline of complexity.
  *
- * Enforces the four-category complexity rules of {@link PasswordDTO} (lower-case,
- * upper-case, digit, non-word) plus a minimum length of seven characters.
+ * Validation rules:
+ * - `minLength: 7` — at least seven characters total.
+ * - `pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).+$` — must contain at
+ *   least one lower-case letter, one upper-case letter, one digit, and one
+ *   non-word character (or underscore).
  *
- * @example
- * ```ts
- * import { PasswordSchema } from "@roastery/beans/collections";
- *
- * PasswordSchema.match("StrongPass1!"); // true
- * PasswordSchema.match("weakpass");     // false (no upper-case, no digit, no special)
- * ```
- *
- * @see {@link PasswordDTO}
+ * The pattern is a lookahead-only regex against the whole string, so any
+ * additional characters are allowed past the four mandatory categories.
  */
-export const PasswordSchema = Schema.make(PasswordDTO);
+export const PasswordSchema = t.String({
+	title: "Password",
+	minLength: 7,
+	pattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[\\W_]).+$",
+	description:
+		"User password. Must have at least 7 characters, including upper/lowercase letters, numbers, and special characters.",
+	examples: ["StrongPass1!", "My$ecureP@ss7"],
+});
+
+/** Static type of {@link PasswordSchema} — equivalent to `string`. */
+export type PasswordSchema = ToDTO<typeof PasswordSchema>;
