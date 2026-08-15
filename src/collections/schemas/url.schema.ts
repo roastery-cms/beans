@@ -1,19 +1,21 @@
-import { UrlDTO } from "@/collections/dtos/url.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link UrlDTO} (HTTP/HTTPS only).
+ * TypeBox schema for HTTP/HTTPS URL strings.
  *
- * @example
- * ```ts
- * import { UrlSchema } from "@roastery/beans/collections";
+ * Validation is delegated to the `"url"` format registered in
+ * `@roastery/terroir/schema/formats`. For non-browser URIs (e.g. `redis://`,
+ * `s3://`) reach for {@link SimpleUrlSchema} instead.
  *
- * UrlSchema.match("https://example.com/path"); // true
- * UrlSchema.match("redis://localhost");        // false (use SimpleUrlSchema)
- * ```
- *
- * @see {@link UrlDTO}
  * @see {@link UrlVO}
  * @see {@link SimpleUrlSchema} — any-protocol counterpart.
  */
-export const UrlSchema = Schema.make(UrlDTO);
+export const UrlSchema = t.String({
+	description: "An HTTP/HTTPS URL.",
+	examples: ["https://example.com/cover.jpg"],
+	format: "url",
+});
+
+/** Static type of {@link UrlSchema} — equivalent to `string`. */
+export type UrlSchema = ToDTO<typeof UrlSchema>;

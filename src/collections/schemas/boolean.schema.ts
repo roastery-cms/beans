@@ -1,21 +1,18 @@
-import { BooleanDTO } from "@/collections/dtos";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link BooleanDTO}.
+ * TypeBox schema accepting any `boolean` value.
  *
- * Singleton — instantiated at module load so every consumer (notably {@link BooleanVO})
- * shares the same compiled validator.
+ * No additional constraints — both `true` and `false` are valid. Use {@link BooleanVO}
+ * for the wrapped value-object.
  *
- * @example
- * ```ts
- * import { BooleanSchema } from "@roastery/beans/collections";
- *
- * BooleanSchema.match(true);  // true
- * BooleanSchema.match("yes"); // false
- * ```
- *
- * @see {@link BooleanDTO}
  * @see {@link BooleanVO}
  */
-export const BooleanSchema = Schema.make(BooleanDTO);
+export const BooleanSchema = t.Boolean({
+	description: "A boolean value.",
+	examples: [true, false],
+});
+
+/** Static type of {@link BooleanSchema} — equivalent to `boolean`. */
+export type BooleanSchema = ToDTO<typeof BooleanSchema>;

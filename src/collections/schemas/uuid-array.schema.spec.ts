@@ -1,27 +1,36 @@
 import { describe, expect, it } from "bun:test";
-import { generateUUID } from "@/entity/helpers";
+import { SchemaManager } from "@roastery/terroir/schema";
 import { UuidArraySchema } from "./uuid-array.schema";
+import { generateUUID } from "@/entity/helpers";
 
 describe("UuidArraySchema", () => {
 	it("should validate an array of valid UUIDs", () => {
-		expect(UuidArraySchema.match([generateUUID()])).toBe(true);
+		expect(SchemaManager.match(UuidArraySchema, [generateUUID()])).toBe(true);
 	});
 
 	it("should validate an empty array", () => {
-		expect(UuidArraySchema.match([])).toBe(true);
+		expect(SchemaManager.match(UuidArraySchema, [])).toBe(true);
 	});
 
 	it("should invalidate an array with non-UUID strings", () => {
-		expect(UuidArraySchema.match(["not-a-uuid"])).toBe(false);
+		expect(SchemaManager.match(UuidArraySchema, ["not-a-uuid"])).toBe(false);
 	});
 
 	it("should invalidate a plain string", () => {
-		expect(UuidArraySchema.match("550e8400-e29b-41d4-a716-446655440000")).toBe(
-			false,
-		);
+		expect(
+			SchemaManager.match(
+				UuidArraySchema,
+				"550e8400-e29b-41d4-a716-446655440000",
+			),
+		).toBe(false);
 	});
 
 	it("should invalidate an array with mixed valid and invalid UUIDs", () => {
-		expect(UuidArraySchema.match([generateUUID(), "invalid"])).toBe(false);
+		expect(
+			SchemaManager.match(UuidArraySchema, [
+				"550e8400-e29b-41d4-a716-446655440000",
+				"invalid",
+			]),
+		).toBe(false);
 	});
 });

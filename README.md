@@ -4,25 +4,19 @@ DDD building blocks for the [Roastery CMS](https://github.com/roastery-cms) ecos
 
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
 
-> ### ⚠️ The entity pillar is being rewritten
->
-> `Mapper`, `ParseEntityToDTOService` and `EntityUpdater` have been **removed**. They were the only serialisation and update paths for `Entity`, so the class documented below is now a **validation-only** base: it guarantees a well-formed identity and well-formed value-objects, and nothing else — there is no longer a supported way to turn one into a DTO.
->
-> Their replacement is `BetterEntity` (`src/entity/better-entity.ts`), a blueprint-driven base that owns its own `toJSON` / `fromJSON` / `set` / `setMany`. It is **not exported yet** — it lands in these barrels once its API settles. Until then, treat `Entity` as frozen and prefer not to build new domain models on it. See `docs/entity-v1-vs-v2.md` for the full comparison.
-
 ## Overview
 
 **beans** provides the foundational primitives for building domain models in TypeScript:
 
-- **Entity** — Abstract base class with built-in `id` (UUID v7), `createdAt`, and `updatedAt` fields, using Symbol-based metadata to avoid property collisions. *(Validation-only; see the notice above.)*
-- **ValueObject** — Immutable, validated wrapper around a value. Throws `InvalidPropertyException` on invalid data.
-- **Collections** — Ready-to-use Value Objects, DTOs, and Schemas for common types (UUID, email, slug, datetime, etc.).
+- **Entity** — Abstract, blueprint-driven base class. Declare which `ValueObject` (or nested `Entity`) class backs each property and the base derives everything else: validated construction, `toJSON`/`fromJSON`, atomic `set`/`setMany` with automatic `updatedAt` stamping, typed accessors, and an aggregate TypeBox schema. `id` (UUID v7), `createdAt`, and `updatedAt` come built in.
+- **ValueObject** — Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()`; validation runs in the constructor and throws `InvalidPropertyException` on invalid data.
+- **Collections** — Ready-to-use Value Objects and TypeBox schemas for common types (UUID, email, slug, datetime, etc.), one pair per primitive.
 
 ## Technologies
 
 | Tool | Purpose |
 |------|---------|
-| [@roastery/terroir](https://github.com/roastery-cms/terroir) | Schema validation, exception hierarchy, and TypeBox re-exports |
+| [@roastery/terroir](https://github.com/roastery-cms/terroir) | Schema validation, exception hierarchy, well-known symbols, and TypeBox re-exports |
 | [TypeBox](https://github.com/sinclairzx81/typebox) | Runtime schema validation and TypeScript type inference |
 | [slugify](https://github.com/simov/slugify) | URL-safe slug generation |
 | [tsup](https://tsup.egoist.dev) | Bundling to ESM + CJS with `.d.ts` generation |
@@ -64,80 +58,132 @@ bun link @roastery/beans
 
 ## Entity
 
-Abstract base class that every domain entity extends. Provides `id`, `createdAt`, and `updatedAt` out of the box, validated through Value Objects.
+Abstract base class that every domain entity extends, driven by a **blueprint**: a plain object mapping each domain property to its `ValueObject` or `Entity` class. The subclass declares only `defineEntity()` — no constructor, no hand-written schema, no getters.
 
 ```typescript
 import { Entity } from "@roastery/beans";
-import { EntitySchema, EntityContext } from "@roastery/beans/entity/symbols";
-import type { EntityDTO } from "@roastery/beans/entity/dtos";
-import { Schema } from "@roastery/terroir/schema";
-import { t } from "@roastery/terroir";
-import { UuidDTO, DateTimeDTO, StringDTO, SlugDTO } from "@roastery/beans/collections";
-import { DefinedStringVO, SlugVO } from "@roastery/beans/collections";
+import type { AccessorsOf, EntityDefinition } from "@roastery/beans/entity/types";
+import { SlugVO, StringVO } from "@roastery/beans/collections/value-objects";
 
-// 1. Define the schema
-const PostDTO = t.Object({
-  id: UuidDTO,
-  createdAt: DateTimeDTO,
-  updatedAt: t.Optional(DateTimeDTO),
-  title: StringDTO,
-  slug: SlugDTO,
-});
+const postProperties = {
+  title: StringVO,
+  slug: SlugVO,
+};
 
-const PostSchema = Schema.make(PostDTO);
-type PostInput = { title: string; slug: string };
-
-// 2. Implement the entity
-class Post extends Entity<typeof PostDTO> {
-  public readonly [EntitySchema] = PostSchema;
-
-  private _title: DefinedStringVO;
-  private _slug: SlugVO;
-
-  public get title(): string {
-    return this._title.value;
-  }
-
-  public get slug(): string {
-    return this._slug.value;
-  }
-
-  public constructor(data: EntityDTO & PostInput) {
-    super(data, "post");
-    this._title = DefinedStringVO.make(data.title, this[EntityContext]("title"));
-    this._slug = SlugVO.make(data.slug, this[EntityContext]("slug"));
+// biome-ignore lint/correctness/noUnusedVariables: merging with the class below is the use.
+interface Post extends AccessorsOf<typeof postProperties> {}
+class Post extends Entity<typeof postProperties> {
+  protected defineEntity(): EntityDefinition<typeof postProperties> {
+    return { properties: postProperties, source: "post" };
   }
 }
 ```
 
-The entity-type tag (`"post"`) is passed as the second argument to `super(...)` and stored under `this[EntitySource]` by the base class — there is no need for a `[EntitySource]` class field on the subclass. The `[EntitySchema]` field is `abstract` on `Entity`, so every subclass must bind it to its own `Schema.make(...)` instance — it still validates, even though nothing in the package converts the entity to a DTO any more.
+Usage:
 
-### Symbols
+```typescript
+const post = new Post({ title: "Hello", slug: "Hello World" });
+
+post.title;                  // "Hello" — accessor derived from the blueprint
+post.slug;                   // "hello-world" — the VO's transform ran
+post.id;                     // UUID v7, generated by the base
+post.set("title", "Hi");     // validates, replaces, stamps updatedAt
+post.setMany({ title: "Oi", slug: "oi" }); // atomic, one updatedAt stamp
+post.toJSON();               // plain object
+Post.fromJSON(row);          // strict static hydration, identity preserved
+Post.demo();                 // fixture without data — every VO on its default
+```
+
+Key rules:
+
+- **`defineEntity` must be a prototype method, never a class field** — the base invokes it during construction, before field initializers run. It must also be **pure**: `fromJSON` reads the blueprint through a probe without running any constructor.
+- **Identity is optional in the payload, all-or-nothing.** Omit `id`/`createdAt`/`updatedAt` entirely for a fresh identity, or provide `id` **and** `createdAt` together (with `updatedAt` still optional). Half a payload is rejected at compile time and at runtime.
+- **The `interface Post extends AccessorsOf<…> {}` line is what types the accessors.** They are installed at runtime regardless; the merge is how TypeScript learns about them. A blueprint key may not collide with an existing member (`schema`, `toJSON`, `get`, `set`, `id`, …) — the base throws `PropertyNameCollisionException` carrying the key.
+- **Two hydration paths, and they differ.** `new Post({ ...row })` validates property by property and ignores unknown keys; `Post.fromJSON(row)` validates the whole payload against the aggregate schema first, rejecting missing **and** unknown keys. Use `fromJSON` for payloads of untrusted origin.
+- **Aggregates nest.** A blueprint value may be another `Entity` subclass: accessors return the nested **instance** (so reads chain), `toJSON`/`fromJSON`/`schema` recurse, and `set("author", raw)` rebuilds the nested entity from its raw payload. Blueprint cycles are detected and reported as `CyclicEntityDefinitionException`.
+- **The schema is derived, not declared.** `post.schema` is a TypeBox object built from the blueprint (identity fields included), compiled once per class and emitted with `additionalProperties: false` at every level.
+
+### Blueprint rules
+
+A blueprint can also carry the **domain's own rules** — which properties may be omitted, and how the base fills them. That is what keeps a subclass free of a hand-written constructor even when the domain has defaults and derivations:
+
+```typescript
+import { blueprint } from "@roastery/beans/entity/helpers";
+import { BooleanVO, SlugVO, StringVO } from "@roastery/beans/collections/value-objects";
+
+// Domain vocabulary: aliases inherit defineMeta and transform
+class TagName extends StringVO {}
+class TagSlug extends SlugVO {}
+class TagVisibility extends BooleanVO {}
+
+const postTagProperties = blueprint({
+  name: TagName,
+  slug: TagSlug,
+  hidden: TagVisibility,
+}).with({
+  slug: { derive: (raw) => raw.name },  // omitted? comes from the name
+  hidden: { default: false },           // the entity's default, not the VO's
+});
+
+// biome-ignore lint/correctness/noUnusedVariables: merging with the class below is the use.
+interface PostTag extends AccessorsOf<typeof postTagProperties> {}
+class PostTag extends Entity<typeof postTagProperties> {
+  protected defineEntity(): EntityDefinition<typeof postTagProperties> {
+    return { properties: postTagProperties, source: "post-tag" };
+  }
+}
+
+new PostTag({ name: "Alan Reis" }); // slug: "alan-reis", hidden: false
+```
+
+The ruled keys become **optional in the constructor payload** — that is the whole type-level effect. Everything else holds:
+
+| Aspect | Behaviour |
+|--------|-----------|
+| Precedence | explicit value > `default` > `derive` |
+| `derive` input | the payload with every `default` already applied, and every sibling already built and normalised (a `SlugVO` sibling reads back slugified) |
+| Ordering | derivations run in **blueprint order** and see the earlier ones; a derivation reading a key derived after it gets `undefined`, and the property's validation rejects it |
+| `demo()` | rules apply, so fixtures stay coherent — `PostTag.demo()` yields `hidden: false` (the entity's default, not `BooleanVO`'s `true`) and a `slug` derived from the demo `name` |
+| `set` / `setMany` | unchanged — rules do not re-fire; `tag.set("name", …)` leaves `slug` alone |
+| Schema and `fromJSON` | unchanged — rules act on input only, `toJSON()` always emits every property, and hydration stays as strict as ever |
+| Nesting | a nested entity's rules apply to its raw payload, so `new Post({ tag: { name: "Alan Reis" } })` is as valid nested as it is on its own — including through `set("tag", raw)` and in `demo()` |
+
+`default` and `derive` are mutually exclusive, and a rule must name a property the blueprint declares — both are compile errors, and both throw `InvalidEntityDefinitionException` at runtime for plain-JS callers.
+
+Two phases (`blueprint(…).with(…)`) because a literal cannot reference its own `typeof`: the first call fixes the shape, which is what makes `raw` fully typed inside `with`. A blueprint with no rules stays a plain object literal, exactly as before.
+
+> **Where the `Rules` symbol lives.** Unlike the slots below, it is declared in this package for now (`src/entity/rules.symbol.ts`) and moves to `@roastery/terroir/symbols` in terroir 0.2.1 — see `docs/terroir-rules-slot.md`.
+
+### Slot symbols
+
+The bases key their internal slots with the ecosystem's well-known symbols, which live in **`@roastery/terroir/symbols`** — not in this package. Symbol equality is by reference, so one declaration site is what lets `beans` write a slot and a consumer read that same slot:
 
 | Symbol | Purpose |
 |--------|---------|
-| `EntitySource` | Identifies the entity origin (e.g. `"post"`, `"user"`) |
-| `EntitySchema` | Holds the entity's validation `Schema` instance |
-| `EntityContext` | Returns `IValueObjectMetadata` for a given property name |
-| `EntityStorage` | Accessor to the entity's internal key-value store |
+| `Context` | Identification context of a `ValueObject` / built property map of an `Entity` |
+| `Meta` | Schema + demo default of a `ValueObject` |
+| `Properties` | Blueprint of an `Entity` |
+| `Source` | Entity-type name of an `Entity` (e.g. `"post"`) |
+| `Storage` | Per-instance transient store of an `Entity` |
+| `Demo` | Sentinel that turns a constructor call into demo mode — used by the `demo()` statics |
 
 ### EntityStorage
 
-Each entity instance has a built-in key-value store (`string → string`) accessible via the `[EntityStorage]` protected getter. Useful for storing transient, non-domain state inside an entity without exposing extra public properties.
+Each entity instance has a built-in key-value store (`string → string`) under the protected `[Storage]` slot. Useful for transient, non-domain state — it never reaches `toJSON()` or the schema, and starts empty on `fromJSON`/`demo`. Expose whatever facade fits your entity:
 
 ```typescript
-import { EntityStorage } from "@roastery/beans/entity/symbols";
+import { Storage } from "@roastery/terroir/symbols";
 
-class Post extends Entity<typeof PostDTO> {
+class Post extends Entity<typeof postProperties> {
   // ...
 
   public addTag(tag: string): void {
-    const current = this[EntityStorage].get("tags") ?? "";
-    this[EntityStorage].set("tags", current ? `${current},${tag}` : tag);
+    const current = this[Storage].get("tags") ?? "";
+    this[Storage].set("tags", current ? `${current},${tag}` : tag);
   }
 
   public getTags(): string[] {
-    return (this[EntityStorage].get("tags") ?? "").split(",").filter(Boolean);
+    return (this[Storage].get("tags") ?? "").split(",").filter(Boolean);
   }
 }
 ```
@@ -146,62 +192,37 @@ The storage API is intentionally minimal:
 
 | Method | Description |
 |--------|-------------|
-| `get(key)` | Returns the value or `null` if the key does not exist |
-| `set(key, value)` | Stores a value under the given key |
+| `get(key)` | Returns the value, or `null` if the key does not exist (or a fallback's result, with the two-argument overload) |
+| `set(key, value)` | Stores a value under the given key and returns it |
 | `del(key)` | Removes the entry for the given key |
-
-### AutoUpdate decorator
-
-Automatically calls `entity.update()` after a method executes, setting `updatedAt` to the current timestamp.
-
-```typescript
-import { AutoUpdate } from "@roastery/beans/entity/decorators";
-
-class Post extends Entity<typeof PostDTO> {
-  // ...
-
-  @AutoUpdate
-  public rename(title: string): void {
-    this._title = DefinedStringVO.make(title, this[EntityContext]("title"));
-    this._slug = SlugVO.make(title, this[EntityContext]("slug"));
-  }
-}
-```
-
-### Entity factory
-
-Generates fresh entity base data for testing:
-
-```typescript
-import { makeEntity } from "@roastery/beans/entity/factories";
-
-const data = makeEntity();
-// { id: "<uuid-v7>", createdAt: "<iso-string>", updatedAt: undefined }
-```
 
 ---
 
 ## ValueObject
 
-Immutable wrapper around a value with schema validation. All Value Objects follow the same pattern: extend `ValueObject`, implement `schema`, and expose a `static make()` factory.
+Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()` — the schema that validates the value and the default used in demo mode. Validation runs inside the base constructor, so an instance can never exist unvalidated.
 
 ```typescript
 import { ValueObject } from "@roastery/beans";
-import type { IValueObjectMetadata } from "@roastery/beans/value-object";
-import { Schema } from "@roastery/terroir/schema";
-import { StringDTO } from "@roastery/beans/collections";
-import { StringSchema } from "@roastery/beans/collections";
+import type { IValueObjectMetadata } from "@roastery/beans/value-object/types";
+import { StringSchema } from "@roastery/beans/collections/schemas";
 
-class FullName extends ValueObject<string, typeof StringDTO> {
-  protected override schema = StringSchema;
-
-  public static make(value: string, info: IValueObjectMetadata): FullName {
-    const vo = new FullName(value, info);
-    vo.validate(); // throws InvalidPropertyException if invalid
-    return vo;
+class FullName extends ValueObject<string, typeof StringSchema> {
+  protected defineMeta(): IValueObjectMetadata<string, typeof StringSchema> {
+    return { default: "string", schema: StringSchema };
   }
 }
+
+new FullName("Alan Reis", { name: "fullName", source: "user" });
+FullName.demo({ name: "fullName", source: "user" }); // built from the default
 ```
+
+Key rules:
+
+- **`defineMeta` must be a prototype method, never a class field** — the base invokes it during construction. It must also be **pure**: `metaOf` (from `@roastery/beans/value-object/helpers`) reads it through a probe without running any constructor.
+- **`meta.default` must pass `meta.schema`.** The default is validated like any other value; an invalid default makes `demo()` throw and breaks the schema of any entity using the class.
+- **`meta.default` may be a thunk**, and should be whenever it's expensive — `defineMeta()` runs on every construction, but a thunk is only invoked in demo mode (`UuidVO` declares `default: generateUUID`).
+- **Override `transform()`** when the value has a canonical form (e.g. `SlugVO` slugifies before validating). `transform` does not run over defaults — declare them already canonical.
 
 ---
 
@@ -209,61 +230,116 @@ class FullName extends ValueObject<string, typeof StringDTO> {
 
 ### Value Objects
 
+One VO per primitive, all on the self-validating base:
+
 | Class | Value type | Description |
 |-------|------------|-------------|
-| `UuidVO` | `string` | UUID with `generate()` for new v7 IDs |
-| `DefinedStringVO` | `string` | Non-empty string |
-| `SlugVO` | `string` | Auto-slugified string |
-| `UrlVO` | `string` | HTTP/HTTPS URL |
-| `DateTimeVO` | `string` | ISO 8601 datetime with `now()` factory |
 | `BooleanVO` | `boolean` | Boolean with `truthy()`, `falsy()`, `from()` helpers |
+| `DateTimeVO` | `string` | ISO 8601 datetime with `now()` factory |
+| `EmailVO` | `string` | Email address |
+| `NumberVO` | `number` | Non-negative number |
+| `PasswordVO` | `string` | Password with complexity rules |
+| `SimpleUrlVO` | `string` | URI of any protocol |
+| `SlugVO` | `string` | Auto-slugified string (`transform`) |
+| `StringVO` | `string` | String of any length — no `minLength` |
 | `StringArrayVO` | `string[]` | Array of strings |
+| `UrlVO` | `string` | HTTP/HTTPS URL |
 | `UuidArrayVO` | `string[]` | Array of UUIDs |
+| `UuidVO` | `string` | UUID with `generate()` for new v7 IDs |
 
 ```typescript
-import { UuidVO, SlugVO, DateTimeVO, BooleanVO } from "@roastery/beans/collections";
+import { BooleanVO, DateTimeVO, SlugVO, UuidVO } from "@roastery/beans/collections/value-objects";
 
-const id = UuidVO.generate(info);       // new UUID v7
-const slug = SlugVO.make("My Post", info); // "my-post"
-const now = DateTimeVO.now(info);        // current ISO timestamp
-const flag = BooleanVO.from(1, info);    // true
+const context = { name: "slug", source: "post" };
+
+const id = UuidVO.generate(context);          // wraps a new UUID v7
+const slug = new SlugVO("My Post", context);  // .value === "my-post"
+const now = DateTimeVO.now(context);          // wraps the current ISO timestamp
+const flag = BooleanVO.from(1, context);      // .value === true
 ```
 
-### DTOs
+### Custom value objects
 
-Pre-built [TypeBox](https://github.com/sinclairzx81/typebox) definitions for common types:
-
-| DTO | Description |
-|-----|-------------|
-| `StringDTO` | Non-empty string |
-| `NumberDTO` | Non-negative number |
-| `BooleanDTO` | Boolean |
-| `DateTimeDTO` | ISO 8601 date-time |
-| `UuidDTO` | UUID |
-| `SlugDTO` | URL slug |
-| `UrlDTO` | HTTP/HTTPS URL |
-| `SimpleUrlDTO` | URL with any protocol |
-| `EmailDTO` | Email address |
-| `PasswordDTO` | Password (min 7 chars, uppercase, lowercase, digit, special) |
-| `StringArrayDTO` | Array of strings |
-| `UuidArrayDTO` | Array of UUIDs |
-| `IdObjectDTO` | `{ id: UUID }` |
-| `SlugObjectDTO` | `{ slug: Slug }` |
+The catalog above covers the primitives, not the domain's constraints. When a property needs "at least four characters" or "a non-empty list of UUIDs", declaring a schema plus a subclass for one rule is a lot of ceremony — so `@roastery/beans/collections/value-objects/custom` ships factories that **return a class**, ready to drop into a blueprint:
 
 ```typescript
-import { EmailDTO, PasswordDTO, UuidDTO } from "@roastery/beans/collections";
+import {
+  customArrayVO,
+  customNumberVO,
+  customRecordVO,
+  customStringVO,
+} from "@roastery/beans/collections/value-objects/custom";
+import { UuidSchema } from "@roastery/beans/collections/schemas";
+
+const postProperties = {
+  title: customStringVO({ options: { minLength: 4, maxLength: 120 }, default: "untitled" }),
+  views: customNumberVO({ options: { minimum: 0 } }),
+  authors: customArrayVO(UuidSchema, { options: { minItems: 1 }, default: () => [generateUUID()] }),
+  metadata: customRecordVO(),
+};
 ```
+
+| Factory | Wrapped value | Options | Default when omitted |
+|---------|---------------|---------|----------------------|
+| `customStringVO(args?)` | `string` | `t.StringOptions` — `minLength`, `maxLength`, `pattern`, `format` | `"string"` |
+| `customNumberVO(args?)` | `number` | `t.NumberOptions` — `minimum`, `maximum`, `multipleOf` | `0` |
+| `customArrayVO(items, args?)` | `Static<items>[]` | `t.ArrayOptions` — `minItems`, `maxItems`, `uniqueItems` | `[]` |
+| `customObjectVO(properties, args)` | the declared shape | `t.ObjectOptions` | — **required** |
+| `customRecordVO(args?)` | `Record<string, unknown>` | `t.ObjectOptions` | `{}` |
+| `defineValueObject(args)` | whatever the schema says | takes a ready `schema` instead | — **required** |
+
+Every factory accepts the same hooks: `default` (value or thunk), `name` (stamped onto the class, for stack traces), `transform(value)` and `validate(value, context)`. The `validate` hook is a **predicate** running after the schema has already accepted the transformed value; returning `false` raises `InvalidPropertyException` with the owning entity's `name`/`source`, and throwing from inside propagates untouched.
+
+```typescript
+import { defineValueObject } from "@roastery/beans/collections/value-objects/custom";
+import { EmailSchema } from "@roastery/beans/collections/schemas";
+
+const CompanyEmail = defineValueObject({
+  schema: EmailSchema,                                  // reuse an existing schema
+  default: "alan@roastery.dev",
+  name: "CompanyEmail",
+  transform: (value) => value.trim().toLowerCase(),
+  validate: (value) => value.endsWith("@roastery.dev"),
+});
+```
+
+Key rules:
+
+- **Call a factory at module scope, once.** Each call mints a fresh schema object *and* a fresh class. Compiled validators are cached against the schema's object identity and aggregate models against the blueprint object, so a factory called inside `defineEntity()` or `defineMeta()` recompiles on every construction. Nothing fails and nothing warns — it is only slow.
+- **Two calls with identical arguments produce two different classes**, so `instanceof` does not relate them. Assign the class to a `const` and reuse it.
+- **The default is validated inside the factory call**, not at the first `demo()`. `customStringVO({ options: { minLength: 8 } })` throws `InvalidEntityDefinitionException` at import time, because the `"string"` placeholder is six characters. Thunk defaults are trusted there — evaluating one would defeat its purpose — and the base still validates them in demo mode.
+- **`customObjectVO` requires an explicit `default`.** No placeholder can satisfy an arbitrary set of required properties, so it asks rather than guesses.
+- **`customObjectVO` sets `additionalProperties: false`**, matching how `Entity` emits every level of its aggregate model. Pass `options: { additionalProperties: true }` to opt out.
+- Importing anything from this subpath registers the custom string formats, so `customStringVO({ options: { format: "slug" } })` validates against a registered format.
 
 ### Schemas
 
-Each DTO has a corresponding `Schema` instance for runtime validation:
+Pre-built [TypeBox](https://github.com/sinclairzx81/typebox) definitions for common types. Since terroir 0.2.0 dropped the `Schema` wrapper class, each of these **is** the runtime schema — there is no DTO/Schema pair to keep in sync, and nothing to unwrap before TypeBox's own API accepts it:
+
+| Schema | Description |
+|--------|-------------|
+| `BooleanSchema` | Boolean |
+| `DateTimeSchema` | ISO 8601 date-time |
+| `EmailSchema` | Email address |
+| `NumberSchema` | Non-negative number |
+| `PasswordSchema` | Password (min 7 chars, uppercase, lowercase, digit, special) |
+| `SimpleUrlSchema` | URL with any protocol |
+| `SlugSchema` | URL slug |
+| `StringArraySchema` | Array of strings |
+| `StringSchema` | String of any length (no `minLength`) |
+| `UrlSchema` | HTTP/HTTPS URL |
+| `UuidArraySchema` | Array of UUIDs |
+| `UuidSchema` | UUID |
 
 ```typescript
-import { EmailSchema, PasswordSchema, UuidSchema } from "@roastery/beans/collections";
+import { EmailSchema } from "@roastery/beans/collections/schemas";
+import { SchemaManager } from "@roastery/terroir/schema";
 
-EmailSchema.match("user@example.com"); // true
-EmailSchema.match("invalid");          // false
+SchemaManager.match(EmailSchema, "user@example.com"); // true
+SchemaManager.match(EmailSchema, "invalid");          // false
 ```
+
+`SchemaManager.match` compiles each schema once and memoizes the validator against the schema's object identity — so pass a stable schema (a module-level constant like the ones above), never one built inline at the call site.
 
 ---
 
@@ -273,25 +349,48 @@ EmailSchema.match("invalid");          // false
 // Top-level pillars
 import { Entity, ValueObject } from "@roastery/beans";
 
+// Symbols keying the bases' internal slots — from terroir, not from beans
+import { Context, Demo, Meta, Properties, Source, Storage } from "@roastery/terroir/symbols";
+
 // Entity subpaths
-import { EntitySource, EntitySchema, EntityContext, EntityStorage } from "@roastery/beans/entity/symbols";
-import { AutoUpdate } from "@roastery/beans/entity/decorators";
-import { makeEntity } from "@roastery/beans/entity/factories";
-import { deepEquals, generateUUID, slugify } from "@roastery/beans/entity/helpers";
-import { EntitySchema as BaseEntitySchema } from "@roastery/beans/entity/schemas"; // runtime Schema for the base EntityDTO
-import { EntityDTO } from "@roastery/beans/entity/dtos";
-import type { IEntity, IRawEntity } from "@roastery/beans/entity/types";
+import { blueprint, deepEquals, generateUUID } from "@roastery/beans/entity/helpers";
+import type {
+  AccessorsOf,
+  EntityDefinition,
+  IEntity,
+  IRawEntity,
+  PropertiesShapeBase,
+  PropertyRule,
+  RawContextOf,
+  RuledBlueprint,
+  RulesOf,
+  SerializedEntity,
+} from "@roastery/beans/entity/types";
 
-// ValueObject metadata
-import type { IValueObjectMetadata } from "@roastery/beans/value-object/types";
+// ValueObject subpaths
+import { metaOf } from "@roastery/beans/value-object/helpers";
+import type { IValueObjectContext, IValueObjectMetadata } from "@roastery/beans/value-object/types";
 
-// Collections (single barrel for DTOs, Schemas and Value Objects)
-import { UuidVO, SlugVO } from "@roastery/beans/collections";       // Value Objects
-import { UuidDTO, EmailDTO } from "@roastery/beans/collections";    // DTOs
-import { UuidSchema, EmailSchema } from "@roastery/beans/collections"; // Schemas
+// Collections (one barrel per kind)
+import { SlugVO, UuidVO } from "@roastery/beans/collections/value-objects";
+import { EmailSchema, UuidSchema } from "@roastery/beans/collections/schemas";
+import {
+  customArrayVO,
+  customNumberVO,
+  customObjectVO,
+  customRecordVO,
+  customStringVO,
+  defineValueObject,
+} from "@roastery/beans/collections/value-objects/custom";
+import type {
+  ICustomValueObjectArgs,
+  IDefineValueObjectArgs,
+  IValueObjectHooks,
+  ValueObjectClassOf,
+} from "@roastery/beans/collections/value-objects/custom/types";
 ```
 
-> **Naming note.** `EntitySchema` exists in two forms: the **symbol** (under `/entity/symbols`) is the property key on `Entity`, while the homonymous **runtime instance** (under `/entity/schemas`) is `Schema.make(EntityDTO)` validating the base shape. The same applies to `EntityStorage` — symbol vs runtime class. The pairing is intentional; alias one when you need both in scope.
+> **Naming note.** `EntityStorage` is the runtime class behind the entity's transient store, while the `Storage` **symbol** (from `@roastery/terroir/symbols`) is the protected key that holds its per-instance value. The pairing is intentional.
 
 ---
 

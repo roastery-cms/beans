@@ -12,7 +12,7 @@
  * @param b - Second value.
  * @returns `true` when both values are structurally identical.
  *
- * @see `BetterEntity.setMany` — uses this to detect (and skip) no-op updates.
+ * @see `Entity.setMany` — uses this to detect (and skip) no-op updates.
  *
  * @example
  * ```ts

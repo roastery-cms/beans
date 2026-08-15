@@ -1,19 +1,19 @@
-import { StringArrayDTO } from "@/collections/dtos/string-array.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link StringArrayDTO}.
+ * TypeBox schema for arrays of unconstrained strings.
  *
- * @example
- * ```ts
- * import { StringArraySchema } from "@roastery/beans/collections";
+ * No `minItems` / `maxItems` constraints — empty arrays are accepted and
+ * individual elements may be the empty string. If you need non-empty entries,
+ * compose a stricter inner schema and a fresh `t.Array(...)`.
  *
- * StringArraySchema.match(["a", "b"]); // true
- * StringArraySchema.match([]);          // true (empty array allowed)
- * StringArraySchema.match(["a", 1]);    // false (mixed types)
- * ```
- *
- * @see {@link StringArrayDTO}
  * @see {@link StringArrayVO}
  */
-export const StringArraySchema = Schema.make(StringArrayDTO);
+export const StringArraySchema = t.Array(t.String(), {
+	description: "A list of string values.",
+	examples: [["item1", "item2"]],
+});
+
+/** Static type of {@link StringArraySchema} — equivalent to `string[]`. */
+export type StringArraySchema = ToDTO<typeof StringArraySchema>;

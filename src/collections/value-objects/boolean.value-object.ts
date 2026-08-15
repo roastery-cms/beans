@@ -1,81 +1,62 @@
 import { ValueObject } from "@/value-object";
-import type { IValueObjectContext } from "@/value-object/types";
-import type { Schema } from "@roastery/terroir/schema";
-import type { BooleanDTO } from "../dtos";
+import type {
+	IValueObjectContext,
+	IValueObjectMetadata,
+} from "@/value-object/types";
 import { BooleanSchema } from "../schemas";
 
 /**
- * Value-object wrapper around a `boolean`. Validates against {@link BooleanSchema}.
+ * Boolean value-object. Validates against {@link BooleanSchema}.
  *
- * Beyond the standard `make(value, info)` factory, exposes three sugar
- * constructors so consumers can express intent at the call site:
- * `truthy(info)`, `falsy(info)`, and `from(value, info)` (which coerces any
- * truthy/falsy input via `!!value`).
+ * Besides the regular constructor, three sugar statics cover the common
+ * cases: {@link BooleanVO.truthy}, {@link BooleanVO.falsy} and
+ * {@link BooleanVO.from} — the last one coercing any value with `!!`.
  *
- * @see {@link BooleanDTO}
  * @see {@link BooleanSchema}
  *
  * @example
  * ```ts
- * import { BooleanVO } from "@roastery/beans/collections";
- *
- * const info = { name: "isPublished", source: "Post" };
- * BooleanVO.make(true, info);
- * BooleanVO.truthy(info);              // BooleanVO wrapping `true`
- * BooleanVO.from("yes", info);         // BooleanVO wrapping `true` (any truthy → true)
+ * const context = { name: "published", source: "post" };
+ * new BooleanVO(true, context);
+ * BooleanVO.from("yes", context).value; // true
+ * BooleanVO.falsy(context).value;       // false
  * ```
  */
-export class BooleanVO extends ValueObject<boolean, typeof BooleanDTO> {
-	protected override readonly schema: Schema<typeof BooleanDTO> = BooleanSchema;
-
-	protected constructor(value: boolean, info: IValueObjectContext) {
-		super(value, info);
+export class BooleanVO extends ValueObject<boolean, typeof BooleanSchema> {
+	/** @returns The boolean schema and `true` as the demo default. */
+	protected defineMeta(): IValueObjectMetadata<boolean, typeof BooleanSchema> {
+		return { default: true, schema: BooleanSchema };
 	}
 
 	/**
-	 * Builds a `BooleanVO` and runs validation before returning.
+	 * Builds a `BooleanVO` wrapping `true`.
 	 *
-	 * @param value - Boolean to wrap.
-	 * @param info - Metadata for error context.
-	 * @throws `InvalidPropertyException` — when `value` is not a boolean.
+	 * @param context - `{ name, source }` — whose value this is.
+	 * @returns The wrapped `true`.
 	 */
-	public static make(value: boolean, info: IValueObjectContext): BooleanVO {
-		const newVO = new BooleanVO(value, info);
-
-		newVO.validate();
-
-		return newVO;
+	public static truthy(context: IValueObjectContext): BooleanVO {
+		return new BooleanVO(true, context);
 	}
 
 	/**
-	 * Sugar for `BooleanVO.make(true, info)`.
+	 * Builds a `BooleanVO` wrapping `false`.
 	 *
-	 * @param info - Metadata for error context.
+	 * @param context - `{ name, source }` — whose value this is.
+	 * @returns The wrapped `false`.
 	 */
-	public static truthy(info: IValueObjectContext): BooleanVO {
-		return BooleanVO.make(true, info);
+	public static falsy(context: IValueObjectContext): BooleanVO {
+		return new BooleanVO(false, context);
 	}
 
 	/**
-	 * Sugar for `BooleanVO.make(false, info)`.
+	 * Coerces any value to its boolean form (`!!value`) and wraps it —
+	 * `0`, `""`, `null` and `undefined` become `false`; everything else `true`.
 	 *
-	 * @param info - Metadata for error context.
+	 * @param value - Any value to coerce.
+	 * @param context - `{ name, source }` — whose value this is.
+	 * @returns The wrapped coercion result.
 	 */
-	public static falsy(info: IValueObjectContext): BooleanVO {
-		return BooleanVO.make(false, info);
-	}
-
-	/**
-	 * Coerces any input to boolean (`!!value`) and wraps it in a `BooleanVO`.
-	 *
-	 * Useful at integration boundaries where the source emits truthy/falsy
-	 * values instead of canonical booleans (form fields, query strings).
-	 *
-	 * @param value - Anything; `0`, `""`, `null`, `undefined`, `NaN` map to
-	 *   `false`; everything else maps to `true`.
-	 * @param info - Metadata for error context.
-	 */
-	public static from(value: unknown, info: IValueObjectContext): BooleanVO {
-		return BooleanVO.make(!!value, info);
+	public static from(value: unknown, context: IValueObjectContext): BooleanVO {
+		return new BooleanVO(!!value, context);
 	}
 }

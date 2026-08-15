@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`@roastery/beans` is a TypeScript library that ships the DDD building blocks for the Roastery CMS ecosystem: an `Entity` base class, an immutable `ValueObject` base class, and a `collections` module with ready-made DTOs / Schemas / Value Objects (UUID, slug, email, datetime, etc.). All schema validation flows through `@roastery/terroir` (a TypeBox-backed schema/exception toolkit).
+`@roastery/beans` is a TypeScript library that ships the DDD building blocks for the Roastery CMS ecosystem: a blueprint-driven `Entity` base class, a self-validating immutable `ValueObject` base class, and a `collections` module with ready-made Schema / Value Object pairs (UUID, slug, email, datetime, etc.). All schema validation flows through `@roastery/terroir` (a TypeBox-backed schema/exception toolkit), currently on **0.2.0**, which also owns the well-known symbols keying the bases' slots.
 
-The package is at version `0.1.0` (pre-1.0). Read `README.md` first — it stays in sync with the API and shows the canonical subclass patterns. `CHANGELOG.md` follows Keep a Changelog and is updated manually per release.
+The package is pre-1.0. Read `README.md` first — it stays in sync with the API and shows the canonical subclass patterns. `CHANGELOG.md` follows Keep a Changelog and is updated manually per release.
 
 ## Tooling
 
@@ -25,7 +25,7 @@ mise exec -- bun run build                        # biome --fix && knip && tsup 
 mise exec -- bun run setup                        # build + bun link (for local linking into a consumer)
 ```
 
-Test files use `.spec.ts` (the `.test.ts` suffix was renamed away in commit `877cceb`). Tests live next to the file under test.
+Test files use `.spec.ts` and live next to the file under test.
 
 Husky enforces:
 - **commit-msg**: commitlint with `@commitlint/config-conventional` — commits must follow Conventional Commits.
@@ -33,14 +33,18 @@ Husky enforces:
 
 ## Architecture
 
-Two pillars at `src/`:
+Two top-level pillars at `src/`:
 
-- **`entity/`** — two coexisting bases. The **v1** `Entity<SchemaType>` abstract class: every subclass receives an `EntityDTO` payload (`id`, `createdAt`, `updatedAt?`) plus its own domain fields, and tags itself with an entity-type string; symbol-keyed properties (`[EntitySource]`, `[EntitySchema]`, `[EntityContext]`, `[EntityStorage]`) hold the metadata. The **v2** `BetterEntity` (`entity/better-entity.ts`), driven by a blueprint of `ValueObject`/entity classes, owning its own `toJSON`/`fromJSON`/`set`/`setMany`/`schema`.
-- **`value-object/`** — likewise two bases. The **v1** `ValueObject<TValue, SchemaType>`, which does not validate eagerly — subclass factories call `validate()` after construction so derived classes can transform the value first. The **v2** `value-object/new.ts`, which validates inside its own constructor and carries `[Meta]` (schema + default).
+- **`entity/`** — the `Entity` base (`entity/entity.ts`), plus `helpers/` and `types/`. The `EntityStorage` runtime class (`entity/entity-storage.ts`) backs the `[Storage]` slot.
+- **`value-object/`** — the `ValueObject` base (`value-object/value-object.ts`), plus `helpers/` (`metaOf`, and the internal `readMeta`/`resolveDefault`) and `types/` (`IValueObjectContext`, `IValueObjectMetadata`, `ValueObjectClassLike`).
 
-`collections/` ships triplets — for each primitive type (boolean, datetime, slug, uuid, …) there is a `*.dto.ts` (TypeBox builder), a `*.schema.ts` (`Schema.make(XDTO)` instance), and usually a `*.value-object.ts`. `DefinedStringVO` is the one VO that intentionally reuses `StringDTO`/`StringSchema` rather than declaring its own. `collections/value-objects/new.ts` holds the v2 VOs (only `DefinedStringVO`, `DateTimeVO`, `UuidVO` so far — the rest waits on a planned `ValueObject` API redesign).
+**The slot symbols are not declared here.** `Context`, `Demo`, `Meta`, `Properties`, `Rules`, `Source` and `Storage` come from `@roastery/terroir/symbols` — terroir 0.2.0 moved them there so the whole ecosystem shares one declaration site. Symbol equality is by reference, so re-declaring any of them locally would key a *different* slot: reads return `undefined` and the type-level matches (`Instance extends { [Properties]: infer Shape }`) silently stop resolving. `src/actions/` existed for this and is gone, as does `src/entity/rules.symbol.ts` — `Rules` was the last local holdout and terroir 0.2.0 ships it.
 
-**`Mapper`, `ParseEntityToDTOService` and `EntityUpdater` were removed** along with the `[EntityFactory]` symbol and the `EntityFactory` / `EntityDTOOf` / `EntityUpdaterInput` types. They were the v1 pillar's serialisation and update paths, so **v1 `Entity` is now validation-only** — it has no way to produce a DTO. This is a deliberate transitional state: the v1 pillar is being retired in favour of `BetterEntity`. Don't reintroduce them, and don't write new domain models against v1. `docs/entity-v1-vs-v2.md` compares the two.
+`collections/` ships pairs — for each primitive there is a `*.schema.ts` (the TypeBox schema itself) and a `*.value-object.ts`, 12 of each. There is no `*.dto.ts` layer: since terroir dropped the `Schema` wrapper, the schema *is* the runtime value, so DTO and Schema collapsed into one name. `StringVO` is the one VO that intentionally reuses `StringSchema` rather than declaring its own — and `StringSchema` carries **no** `minLength`, so `StringVO` accepts `""`. A property that must not be empty needs a VO whose schema says so; naming it `name` in a blueprint does not. `collections/value-objects/custom/` is the third piece: factories that build a constrained VO class on the fly, for the rules that don't deserve a file of their own.
+
+**Code layout conventions.** One thing per file: each type alias in its own `types/<kebab>.type.ts`, each interface in `types/<kebab>.interface.ts`, each helper function in its own `helpers/<kebab>.ts`. Barrels re-export only the public surface — internal types/helpers are imported by direct path (`@/entity/types/raw-value-of.type`, `@/entity/helpers/read-definition`), which knip counts as usage. The construction machinery that references the `Entity` class itself (`isEntityClass`, `isEntity`, `rawOf`, `modelFor` + its `models`/`deriving` caches, `buildProperty`, `buildContext` + `constructing`, `buildBaseContext`, `cycleError`) **stays inside `entity/entity.ts`** — extracting it would create circular imports.
+
+Only three of the eight entity helpers are public: `entity/helpers/index.ts` exports `blueprint`, `deepEquals` and `generateUUID`. `applyRuleDefaults`, `extractIdentity`, `installAccessors`, `readDefinition`/`definitionOf` and `rulesOf` are internal — `entity.ts` is their only consumer and imports each by direct path. Adding one to the barrel widens the published API, so leave them out unless that is the intent.
 
 ### Subpath exports
 
@@ -48,105 +52,141 @@ Two pillars at `src/`:
 
 ```ts
 import { Entity, ValueObject } from "@roastery/beans";
-import { EntitySource, EntitySchema, EntityContext, EntityStorage } from "@roastery/beans/entity/symbols";
-import { AutoUpdate } from "@roastery/beans/entity/decorators";
-import { makeEntity } from "@roastery/beans/entity/factories";
-import { generateUUID, slugify } from "@roastery/beans/entity/helpers";
-import type { IEntity, IRawEntity } from "@roastery/beans/entity/types";
-import type { IValueObjectMetadata } from "@roastery/beans/value-object/types";
+import { Context, Demo, Meta, Properties, Rules, Source, Storage } from "@roastery/terroir/symbols";
+import { blueprint, deepEquals, generateUUID } from "@roastery/beans/entity/helpers";
+import type { AccessorsOf, EntityDefinition, IEntity, IRawEntity } from "@roastery/beans/entity/types";
+import { metaOf } from "@roastery/beans/value-object/helpers";
+import type { IValueObjectContext, IValueObjectMetadata } from "@roastery/beans/value-object/types";
+import { SlugVO, UuidVO } from "@roastery/beans/collections/value-objects";
+import { customStringVO, defineValueObject } from "@roastery/beans/collections/value-objects/custom";
 ```
 
-The root `@roastery/beans` only re-exports the two pillar classes — anything else lives behind a subpath. Inside the package itself, use the `@/*` path alias (mapped to `./src/*` in `tsconfig.json`).
+The root `@roastery/beans` only re-exports the two pillar classes — anything else lives behind a subpath. There is **no** `@roastery/beans/collections` barrel — the real subpaths are `/collections/schemas`, `/collections/value-objects`, `/collections/value-objects/custom` and `/collections/value-objects/custom/types`. Inside the package itself, use the `@/*` path alias (mapped to `./src/*` in `tsconfig.json`).
 
 ## Subclass patterns
 
-**Entity subclass.** `super(data, "<entity-type>")` is mandatory — the second argument is the entity-type tag and the base constructor assigns it to `this[EntitySource]` *before* the value-objects run their validation. **Do not** declare `[EntitySource]` as a class field on the subclass — that initializer would only run after `super()` returns, leaving validation errors raised inside the base constructor with an undefined source (this was the bug fixed by commit `38abfff`, closing #3). `[EntitySchema]` is `abstract` on the base and **must** be a class field on the subclass.
+### ValueObject subclass
 
-**Value-object subclass.** `extends ValueObject<TValue, typeof XDTO>`, `protected override readonly schema: Schema<typeof XDTO> = XSchema`, `protected constructor(value, info)` that just delegates to `super`, and a `public static make(value, info): XVO` that does `new` + `validate()` + return. Special factories follow the same shape (e.g. `UuidVO.generate(info)`, `DateTimeVO.now(info)`, `BooleanVO.truthy/falsy/from(info)`).
-
-### The v2 bases (`value-object/new.ts`, `entity/better-entity.ts`)
-
-A second `ValueObject`/`Entity` pair is being built alongside the ones above. They coexist: nothing is re-exported from the barrels yet, and the two do **not** interoperate. The v2 entity contract is `IBetterEntity` (in `entity/better-entity.ts`) — named that way only to avoid colliding with the old `IEntity` in `entity/types/entity.interface.ts`, which it inherits the name of once the old `Entity` is removed.
-
-**`better-entity.ts` carries no TSDoc on purpose** — it was stripped in one pass and is being rewritten by hand. Don't re-add doc comments there without being asked; the contracts live in this section meanwhile. The `biome-ignore` comments in the file are load-bearing: `biome check --fix` (which `bun run build` runs) classifies `noThisInStatic` as a *safe* fix and would rewrite the `this` in `fromJSON` / `demo` into `BetterEntity`, making both build the abstract base instead of the subclass.
-
-**v2 value-object subclass.** `extends ValueObject<TValue, typeof XDTO>` from `@/value-object/new` and implement `defineMeta()`. That's the whole class — no constructor, no `super`, no payload wrapper:
+`extends ValueObject<TValue, typeof XSchema>` and implement `defineMeta()`. That's the whole class — no constructor, no `super`, no payload wrapper:
 
 ```ts
-class DefinedStringVO extends ValueObject<string, typeof StringDTO> {
-	protected defineMeta(): IValueObjectMetadata<string, typeof StringDTO> {
-		return { default: "string", model: StringSchema };
+class StringVO extends ValueObject<string, typeof StringSchema> {
+	protected defineMeta(): IValueObjectMetadata<string, typeof StringSchema> {
+		return { default: "string", schema: StringSchema };
 	}
 }
 
-new DefinedStringVO("alan", { name: "name", source: "bean" });
-DefinedStringVO.demo({ name: "name", source: "bean" });
+new StringVO("alan", { name: "name", source: "bean" });
+StringVO.demo({ name: "name", source: "bean" });
 ```
 
-Override `transform()` when the value needs normalising before validation (e.g. `slugify`). See `collections/value-objects/new.ts` for the three reference implementations.
+Override `transform()` when the value needs normalising before validation (e.g. `SlugVO` slugifies). Sugar statics are plain additions (`BooleanVO.truthy/falsy/from`, `DateTimeVO.now`, `UuidVO.generate` — the last two are aliases of `demo`).
 
-- **`defineMeta` must be a prototype method, never a class field** — same trap, same reason as `defineEntity`: the base calls `this.defineMeta()` *inside* its constructor (it needs the `model` to validate), and a class-field initializer only runs after `super()` returns. Guarded at runtime with an `OperationFailedException` that explains the ordering, since TS can't reject a property overriding a method. It must also be **pure**: `metaOf(Class)` invokes it on an `Object.create`d probe with no constructor run. The subclass never touches `[Meta]` itself — the base fills it from `defineMeta()`.
-- **`meta.default` must pass `meta.model`.** The base validates the default like any other value. Since `BetterEntity` now derives its schema from the blueprint by constructing one demo VO per property, a bad default breaks the *schema* too — not just demo-mode construction. `BetterEntity` catches that and rethrows an `OperationFailedException` naming the offending property. `StringDTO` has `minLength: 1`, so `""` is not a valid default for a `DefinedStringVO`.
-- **`meta.default` may be a thunk, and should be whenever it's expensive.** `defineMeta()` runs on every construction, so a computed default would too — including on the constructions that pass a real value and throw the default away. `DateTimeVO` and `UuidVO` therefore declare `default: () => new Date().toISOString()` and `default: generateUUID`; the base only calls it in demo mode. The discriminant is `typeof === "function"`, so a VO that wrapped a *function* value would have to double-wrap it — no VO in the domain does.
+- **`defineMeta` must be a prototype method, never a class field** — the base calls `this.defineMeta()` *inside* its constructor (it needs the `schema` to validate), and a class-field initializer only runs after `super()` returns. Guarded at runtime with an `InvalidEntityDefinitionException` that explains the ordering, since TS can't reject a property overriding a method. It must also be **pure**: `metaOf(Class)` invokes it on an `Object.create`d probe with no constructor run. The subclass never touches `[Meta]` itself — the base fills it from `defineMeta()`.
+- **`meta.default` must pass `meta.schema`.** The base validates the default like any other value. Since `Entity` derives its schema from the blueprint, a bad default also breaks demo-mode construction of every entity using the class. `SlugSchema` has `minLength: 1`, so `""` is not a valid default for a `SlugVO` — while `StringSchema` constrains nothing beyond the type, which is why the specs reach for a slug whenever they need a value the schema refuses.
+- **`meta.default` may be a thunk, and should be whenever it's expensive.** `defineMeta()` runs on every construction, so a computed default would too — including on the constructions that pass a real value and throw the default away. `DateTimeVO` and `UuidVO` declare `default: () => new Date().toISOString()` and `default: generateUUID`; the base only calls it in demo mode. The discriminant is `typeof === "function"`, so a VO that wrapped a *function* value would have to double-wrap it — no VO in the domain does.
+- **`transform` does not run over defaults** — declare them already in canonical form (`SlugVO`'s default is `"slug"`, not something to slugify).
 
-**v2 entity subclass.** Declare a blueprint (`const xProperties = { field: XVO }`), extend `BetterEntity<typeof xProperties>` and implement `defineEntity()`. The base supplies `id`/`createdAt`/`updatedAt` — they must **not** appear in the blueprint. No constructor is needed: the base's is inherited, with both overloads.
+### Entity subclass
+
+Declare a blueprint (`const xProperties = { field: XVO }`), extend `Entity<typeof xProperties>` and implement `defineEntity()`. The base supplies `id`/`createdAt`/`updatedAt` — they must **not** appear in the blueprint. No constructor is needed: the base's is inherited.
 
 ```ts
 const xProperties = { field: FieldVO, owner: OwnerEntity };
 
-// biome-ignore lint/correctness/noUnusedVariables: o merge com a classe abaixo é o uso.
+// biome-ignore lint/correctness/noUnusedVariables: merging with the class below is the use.
 interface X extends AccessorsOf<typeof xProperties> {}
-class X extends BetterEntity<typeof xProperties> {
+class X extends Entity<typeof xProperties> {
 	protected defineEntity(): EntityDefinition<typeof xProperties> {
 		return { properties: xProperties, source: "x" };
 	}
 }
 
-new X({ field: "value", owner: { name: "alan" } }); // identidade gerada
-X.demo();                                           // modo demo
-X.fromJSON(row);                                    // hidratação validada
+new X({ field: "value", owner: { name: "alan" } }); // fresh identity
+X.demo();                                           // demo mode
+X.fromJSON(row);                                    // strict hydration
 
-x.field;      // accessor tipado
-x.owner.name; // encadeia, porque o accessor devolve a instância aninhada
-x.id;         // getter da própria base
+x.field;      // typed accessor
+x.owner.name; // chains — the accessor returns the nested instance
+x.id;         // getter from the base
 ```
 
-- **`defineEntity` must be a prototype method, never a class field.** Same trap as `[Meta]`: the base calls `this.defineEntity()` *inside* its constructor, and a class-field initializer only runs after `super()` returns. TS can't reject it (a property may override a method), so the base guards at runtime and throws `OperationFailedException` instead of a bare `TypeError`. It must also be **pure** — `fromJSON` invokes it on an `Object.create`d probe with no constructor run, purely to read the blueprint before validating.
-- **A subclass may still declare its own constructor** and delegate to `super(...)`; `defineEntity` does not take that away. See `Tag` in `better-entity.spec.ts`.
-- **`X.demo()` is the entry point without data** — a static, like `fromJSON`. `new X(true)` no longer exists: the constructor has a single signature. Each VO falls back to its `[Meta].default` and nested entities recurse into their own demo mode.
+- **`defineEntity` must be a prototype method, never a class field.** Same trap as `defineMeta`: the base calls `this.defineEntity()` *inside* its constructor, and a class-field initializer only runs after `super()` returns. Guarded at runtime with `InvalidEntityDefinitionException`. It must also be **pure** — `fromJSON` invokes it on an `Object.create`d probe with no constructor run, purely to read the blueprint before validating.
+- **A subclass may still declare its own constructor** and delegate to `super(...)`; it must accept the base's context payload — as one of its overloads is enough — and forward to `super` any argument it doesn't recognise, because `demo()` passes a module-private sentinel through that same channel. See `Tag` in `entity.spec.ts`.
+- **`X.demo()` is the entry point without data** — a static, like `fromJSON`. Each VO falls back to its `[Meta].default` and nested entities recurse into their own demo mode.
 
-**Accessors.** Every blueprint key is readable as a plain property, and `id`/`createdAt`/`updatedAt` are concrete getters on the base — the API the old `Entity` already had.
+**Accessors.** Every blueprint key is readable as a plain property, and `id`/`createdAt`/`updatedAt` are concrete getters on the base.
 
-- **The `interface X extends AccessorsOf<…> {}` line is what types them.** The getters are installed at runtime regardless (on the *prototype*, derived from the blueprint, once per class); the interface merge is how TS learns about them. Skip the line and the accessors still work but stay invisible to the type system — so don't skip it. `AccessorsOf` mirrors `get`, so an entity-valued key yields the nested **instance**.
+- **The `interface X extends AccessorsOf<…> {}` line is what types them.** The getters are installed at runtime regardless (on the *prototype*, derived from the blueprint, once per class); the interface merge is how TS learns about them. Skip the line and the accessors still work but stay invisible to the type system — so don't skip it. `AccessorsOf` mirrors `get`, so an entity-valued key yields the nested **instance**. This is the **one silent failure mode** left: everything else fails loudly with an exception naming the cause.
 - Read-only. `set`/`setMany` remain the only mutation path, which is what keeps the `updatedAt` stamp explicit.
-- **A blueprint key may not collide with an existing member** (`schema`, `toJSON`, `get`, `set`, `id`, …). The base checks `key in prototype` before defining anything and throws `OperationFailedException` naming the key; the install is atomic, so a rejected attempt leaves the prototype untouched and the next attempt throws again. (`name` is safe — it lives on the constructor, not the prototype.)
+- **A blueprint key may not collide with an existing member** (`schema`, `toJSON`, `get`, `set`, `id`, …). The base checks `key in prototype` before defining anything and throws `PropertyNameCollisionException` carrying the key in its `property` slot; the install is atomic, so a rejected attempt leaves the prototype untouched and the next attempt throws again. (`name` is safe — it lives on the constructor, not the prototype.)
 - **Subclassing a concrete entity works.** The install walks the prototype chain, collects the keys an ancestor already covers and defines only the missing ones — so a subclass that overrides `defineEntity` with a *wider* blueprint still gets accessors for its new keys, and the collision guard doesn't fire against the ancestor's own accessors.
 - `noUnsafeDeclarationMerging` is **off** in `biome.json` because of this pattern — the merge is deliberate here, not accidental. `noUnusedVariables` still fires on each interface (it doesn't count the merge as a use), so each declaration carries a one-line `biome-ignore`.
-- **Identity is optional in `context`, all-or-nothing.** `RawContextOf` intersects the blueprint's raw values with a two-variant union: either none of `id`/`createdAt`/`updatedAt` appears (the base generates identity via `makeEntity`), or `id` **and** `createdAt` come together, with `updatedAt` still optional. Half a payload is a compile error, and the base's `extractIdentity` mirrors that guard at runtime for plain-JS callers, throwing `InvalidPropertyException` named after the missing key. Identity still must **not** appear in the blueprint.
+- **Identity is optional in the payload, all-or-nothing.** `RawContextOf` intersects the blueprint's raw values with a two-variant union: either none of `id`/`createdAt`/`updatedAt` appears (the base stamps a fresh identity via `UuidVO.generate` / `DateTimeVO.now`, in `buildBaseContext`), or `id` **and** `createdAt` come together, with `updatedAt` still optional. Half a payload is a compile error, and `extractIdentity` (in `entity/helpers`) mirrors that guard at runtime for plain-JS callers, throwing `IncompleteIdentityException`. That class has no `property` slot — the identity is one unit, and it is the whole unit that is incomplete — so the missing key survives only in the message.
 - **Two hydration paths, and they differ.** `new X({ ...row })` validates VO by VO and ignores keys outside the blueprint. **`X.fromJSON(row)` is static** — it validates the whole payload against the aggregate schema first, rejecting missing **and extra** keys with `InvalidDomainDataException`, and needs no throwaway instance. Use it for payloads of untrusted origin. Both preserve the payload's identity.
-- **Class fields on the subclass are fine.** `fromJSON` and `demo` build through `Reflect.construct`, which runs the subclass constructor and therefore its field initializers, so `new X(...)`, `X.fromJSON(row)` and `X.demo()` all produce the same shape. Two consequences: the subclass **constructor body also runs** on hydration and in demo mode (side effects included), and a subclass that declares its own constructor **must accept the base's context payload** — as one of its overloads is enough — and forward to `super` any argument it doesn't recognise, because `demo()` passes a module-private sentinel through that same channel. `Tag` in `better-entity.spec.ts` is the reference. Domain state still belongs in the blueprint, and transient state in `[Storage]`.
-- **`[Storage]` is the sanctioned escape hatch for transient state** — the same `EntityStorage` class the v1 base uses, a per-instance `string → string` store for cached lookups and derived flags. It is `protected`, so a subclass exposes whatever facade it wants; the symbol is exported from `better-entity.ts` (the only one of the module's four that is) so `this[Storage]` can be named at all. It is initialised in all three construction paths and **starts empty on `fromJSON` / `demo`** — those are statics with no source instance, so there is nothing to carry over. It never reaches `toJSON` or `schema`: it is a separate symbol-keyed slot, not part of `[Context]`, and it cannot collide with an accessor (those only take string keys).
-- **The schema belongs to the blueprint, not the instance.** It's derived from the property classes and memoized in a module-level `WeakMap` keyed by the blueprint object, so every instance of a class shares one `t.TObject` and one compiled `Schema`. Every level is emitted with `additionalProperties: false`.
-- **`setMany` is the mutation primitive; `set` delegates to it.** It validates every key, then builds every value, and only then assigns — so a rejected value leaves the entity untouched. `updatedAt` is stamped **once**, and only if something actually changed.
-- **`get` and `set` reject keys outside `blueprint ∪ id/createdAt/updatedAt`** with `InvalidPropertyException` (the check is `Object.hasOwn`, not `in`, so `Object.prototype` keys don't leak in). `get("updatedAt")` on an unmutated entity still returns `undefined` — a known key with no value is a different case from an unknown key.
+- **Class fields on the subclass are fine.** `fromJSON` and `demo` build through `Reflect.construct`, which runs the subclass constructor and therefore its field initializers, so all three construction paths produce the same shape. Two consequences: the subclass **constructor body also runs** on hydration and in demo mode (side effects included), and domain state still belongs in the blueprint, transient state in `[Storage]`.
+- **`[Storage]` is the sanctioned escape hatch for transient state** — the `EntityStorage` class, a per-instance `string → string` store for cached lookups and derived flags. It is `protected`, so a subclass exposes whatever facade it wants; the `Storage` symbol comes from `@roastery/terroir/symbols`. It is initialised in all three construction paths and **starts empty on `fromJSON` / `demo`** — those are statics with no source instance, so there is nothing to carry over. It never reaches `toJSON` or `schema`, and it cannot collide with an accessor (those only take string keys).
+- **The schema belongs to the blueprint, not the instance.** It's derived from the property classes and memoized in a module-level `WeakMap` keyed by the blueprint object, so every instance of a class shares one `t.TObject`. Every level is emitted with `additionalProperties: false`. Keeping that model stable is also what keeps validation cheap: `SchemaManager.match` caches the compiled validator against the schema's *object identity*, so the model is compiled once per blueprint rather than once per call.
+- **`setMany` is the mutation primitive; `set` delegates to it.** It validates every key, then builds every value, and only then assigns — so a rejected value leaves the entity untouched. `updatedAt` is stamped **once** (via `DateTimeVO.now`), and only if something actually changed.
+- **`get` and `set` reject unknown keys** with `InvalidPropertyException` (the check is `Object.hasOwn`, not `in`, so `Object.prototype` keys don't leak in). `get("updatedAt")` on an unmutated entity still returns `undefined` — a known key with no value is a different case from an unknown key.
+- **Writing to `id`/`createdAt`/`updatedAt` is a different failure from writing to an unknown key**, and `setMany` says so: identity fields raise `ImmutablePropertyException` (they are readable, never writable), unknown keys raise `InvalidPropertyException`. `get` accepts the identity fields, so it only ever raises the latter.
 
-**Aggregates.** A blueprint value may be a `ValueObject` class **or another `BetterEntity` subclass**. The discriminant is `toJSON` at the type level and `prototype instanceof BetterEntity` at runtime.
+**Blueprint rules.** `blueprint(shape).with(rules)` (in `entity/helpers/blueprint.ts`) attaches per-property domain rules — `{ default }` (a fallback belonging to the entity, outranking the VO's own) or `{ derive }` (computed from siblings). The two are mutually exclusive.
+
+```ts
+const postTagProperties = blueprint({ name: TagName, slug: TagSlug, hidden: TagVisibility })
+	.with({ slug: { derive: (raw) => raw.name }, hidden: { default: false } });
+
+new PostTag({ name: "Alan Reis" }); // slug: "alan-reis", hidden: false
+```
+
+- **The rules live under the `Rules` symbol key on the blueprint object itself** (from `@roastery/terroir/symbols`; `rulesOf` reads the slot, `blueprint().with()` writes it). That is what makes the feature cheap: `Object.keys`/`Object.entries` skip symbols, so `modelFor`, `installAccessors`, `toJSON` and every other traversal keep seeing exactly the domain properties. The type-level counterpart is `DomainKeys<Shape>` (`Extract<keyof Shape, string>`) — **every mapped type over a blueprint must go through it**, or the slot leaks as an accessor/schema field/serialized key. Six already do (`AccessorsOf`, `ContextOf`, `EntitySchemaOf`, `InputValuesOf`, `SerializedValuesOf`, `ReadableKey`).
+- **Ruled keys are optional in the constructor payload** (`ConstructionValuesOf` inside `RawContextOf`). For a plain blueprint `RuledKeys` is `never`, so everything collapses to the previous behaviour.
+- **Resolution is explicit value > `default` > `derive`**, all inside `buildContext`: `applyRuleDefaults` fills the `default` rules over the payload first, the main loop builds every non-derived key, then a second pass resolves the derivations. They run in **blueprint order** and read siblings already built and normalised (a `SlugVO` sibling reads back slugified). A derivation reading a key derived later gets `undefined` and fails on that property's validation.
+- **"Omitted" means `undefined`, not falsy.** `applyRuleDefaults` tests `values[key] !== undefined`, so an explicit `false` or `0` or `""` counts as a supplied value and the rule's `default` does not fire — which is exactly what a `{ hidden: { default: false } }` rule needs in order to be overridable with `true`.
+- **Rules apply in `demo()`** — that is what makes fixtures coherent instead of a bag of unrelated defaults. Keys with no rule still go through the VO's `.demo()`, so `transform` still never runs over a VO default.
+- **Rules never re-fire on `set`/`setMany`.** Mutation takes explicit values; `tag.set("name", …)` leaves a derived `slug` alone.
+- **The schema and `fromJSON` are untouched** — rules act on input only, `toJSON()` always emits every property, so every key stays required and hydration stays strict.
+- Two phases because a literal cannot reference its own `typeof`; `blueprint(shape)` alone returns **only** `{ with }`, so a forgotten `.with(...)` is a type error rather than a `with` key leaking into the properties.
+- **Nesting keeps the rules.** A nested entity's payload accepts the same omissions its own blueprint allows (`InputValueOf` → `NestedEntityInput`). That type reads the nested blueprint through an inline `infer` rather than `PropertiesOfClass`, and funnels the optionality through `Optionalize` — both deliberate: the serialized types recurse through aggregates, and the straightforward spelling blows past TS's instantiation depth at `set("author", raw)`.
+- **Domain vocabulary is free by subclassing a VO**: `class TagName extends StringVO {}` inherits `defineMeta`, `transform`, `demo` and the `instanceof` — including, note, the parent's *lack* of constraints. Override `defineMeta` when the alias needs a stricter schema.
+
+### Custom VO factories
+
+`collections/value-objects/custom/` ships functions that **return a VO class**, so a blueprint can carry a constraint inline instead of a schema plus a subclass per rule. Subpath: `@roastery/beans/collections/value-objects/custom` (types one level deeper, under `/types`). `defineValueObject({ schema, default, name?, transform?, validate? })` is the core; `customStringVO`, `customNumberVO`, `customArrayVO(items, args?)`, `customObjectVO(properties, args)` and `customRecordVO` are thin wrappers that only build the schema and delegate.
+
+This works because the blueprint machinery is **entirely structural** — `isEntityClass` is `prototype instanceof Entity`, `SchemaOf` infers through `ValueObject<unknown, infer SchemaType>`, `RawValueOf` reads `prototype["value"]`, and nothing in `src/` ever touches `Class.name`. A class expression satisfies `AnyValueObjectClass` and lands in the VO branch on its own.
+
+- **Every factory must annotate its return type with `ValueObjectClassOf<V, S>`.** The class is declared inside the function body, and `tsconfig.build.json` sets `declaration: true` while `bun run build` runs `tsup --dts` — an inferred return type fails with **TS4060** (`Return type of exported function has or is using private name`) and emits no `.d.ts`. The `as ValueObjectClassOf<…>` on the return covers `demo` alone: the base declares it generic over `this`, so assignability instantiates `Self` at its constraint and the return collapses to `{ value: unknown }`.
+- **Call the factories at module scope, once.** Each call mints a fresh schema object *and* a fresh class. `SchemaManager` caches compiled validators by schema identity and `modelFor` memoizes by blueprint object, so a factory called inside `defineEntity()`/`defineMeta()` recompiles per construction — silently, only slower. Corollary: two calls with identical arguments produce unrelated classes, so `instanceof` does not connect them.
+- **The schema and the `meta` literal live in the closure, never in the class body.** `defineMeta()` runs on every construction; building either inside would allocate per instance and hand `SchemaManager` a new cache key each time.
+- **Ready defaults are validated eagerly, inside the factory call**, raising `InvalidEntityDefinitionException` (with `name` as its `source`, falling back to `"value-object"`). That turns a latent `demo()`/blueprint failure into a module-load failure. **Thunk defaults are skipped** on purpose — checking one would evaluate it, defeating the laziness — and the base still validates them at demo time.
+- **`customObjectVO` requires `default`**; there is no placeholder for an arbitrary set of required properties, and `Value.Create` is out of reach (terroir re-exports only the root `@sinclair/typebox` module, not `/value`). The others fall back to `"string"` / `0` / `[]` / `{}`, each then subject to the eager check.
+- **`validate` is a predicate**, not a `void` hook: it runs *after* `super.validate()`, so it only sees transformed, schema-valid values, and returning `false` raises `InvalidPropertyException` with the context's `name`/`source`. Throwing from inside works too and propagates untouched.
+- **The barrel carries `import "@roastery/terroir/schema/formats"`** — without it, `customStringVO({ options: { format: "slug" } })` would validate against an unregistered format. Only `collections/schemas/index.ts` did this before.
+- **`options` stays nested** in the args (`{ options: { minLength: 4 } }`), not spread. TypeBox's `SchemaOptions` already declares a `default` field — the JSON Schema annotation — which means something else entirely from the demo-mode fallback.
+
+**Aggregates.** A blueprint value may be a `ValueObject` class **or another `Entity` subclass**. The discriminant is `toJSON` at the type level and `prototype instanceof Entity` at runtime.
 
 - `get("author")` returns the **nested instance** (chainable: `post.get("author").get("name")`); `set("author", raw)` takes the nested entity's *raw* payload — identity optional, same all-or-nothing rule — and rebuilds it.
 - `toJSON`/`fromJSON`/`schema` all recurse.
 - A validation error raised inside a nested entity carries **its own** `source` and field name (`("name", "author")`, not `("author", "post")`) — more precise, but the outer path is lost.
 - Mutating a nested entity directly (`post.get("author").set(...)`) does **not** stamp the parent's `updatedAt`; only `post.set("author", raw)` does.
-- **Cycles are detected, not survived.** A blueprint `A → B → A` recurses in two independent places — schema derivation and construction — and both are guarded by a set of in-progress blueprints, so you get an `OperationFailedException` naming the entity instead of a bare `RangeError`. The guard releases on the way out, so two properties of the *same* entity class in one blueprint (siblings, not a cycle) keep working. The cycle still has to be broken; the guard only makes it diagnosable.
+- **Cycles are detected, not survived.** A blueprint `A → B → A` recurses in two independent places — schema derivation and construction — and both are guarded by a set of in-progress blueprints, so you get a `CyclicEntityDefinitionException` naming the entity instead of a bare `RangeError`. The guard releases on the way out, so two properties of the *same* entity class in one blueprint (siblings, not a cycle) keep working. The cycle still has to be broken; the guard only makes it diagnosable.
 
 ## Conventions
 
-- **Naming collisions are intentional.** `EntityStorage` is both a symbol (under `/entity/symbols`) and a runtime class (under `/entity`). `EntitySchema` is both a symbol (key) and a runtime `Schema` instance (the validator for the base `EntityDTO`). Both pairs are part of the documented API — alias one when you need both in scope (e.g. `import { EntityStorage as EntityStorageImpl } from "./entity-storage"`). Don't rename them.
+- **The `biome-ignore` comments on `demo`/`fromJSON` are load-bearing**: `biome check --fix` (which `bun run build` runs) classifies `noThisInStatic` as a *safe* fix and would rewrite the `this` in those statics into the abstract base class, making them build the base instead of the subclass. Keep the directives verbatim (`entity/entity.ts`, `value-object/value-object.ts`).
+- **Never declare a slot symbol locally.** All seven come from `@roastery/terroir/symbols`. `Properties` and `Source` are used as type-level keys (`Instance extends { [Properties]: infer Shape }`), so a second symbol with the same description — or a module-local redeclaration — would make those conditional types silently stop matching, and every slot read return `undefined`. `grep -rn 'Symbol("' src` must return **zero** hits: the last exception (`src/entity/rules.symbol.ts`, the temporary home of `Rules`) is gone now that terroir ships it. Do not reintroduce one.
+- **A symbol used as a computed key is a *value* import, not a type import.** `Rules` appears in both positions and the distinction is load-bearing: `ruled-blueprint.type.ts` and `ruled-keys.type.ts` only ever mention it inside a type (`{ readonly [Rules]: Rule }`) and correctly use `import type`, while `blueprint.ts` and `rules-of.ts` *read and write* the slot at runtime (`properties[Rules]`, `Object.assign({}, properties, { [Rules]: rules })`) and need a plain `import`. Because `verbatimModuleSyntax: true` erases `import type` outright, getting this backwards does not fail at the import — it throws `ReferenceError: Rules is not defined` from inside `buildContext`, so *every* entity construction breaks at once while the module graph loads fine.
+- **One intentional naming pair**: `EntityStorage` is the runtime class (`entity/entity-storage.ts` — internal, not re-exported from any barrel), `Storage` is the symbol keying its per-instance slot (`@roastery/terroir/symbols`).
+- **Reach for the specific domain exception, not the generic one.** terroir 0.2.0 ships `ImmutablePropertyException`, `PropertyNameCollisionException`, `IncompleteIdentityException`, `InvalidEntityDefinitionException` and `CyclicEntityDefinitionException` — added because *this* repo was collapsing all five cases into `OperationFailedException`/`InvalidPropertyException`. Tests assert the class (and the `property`/`source` slots), never a message substring. Every exception also takes a trailing `ErrorOptions`, so a wrapped failure keeps its `cause`.
 - **`tsconfig.json` has `verbatimModuleSyntax: true` and `strict: true`.** Type-only imports must use `import type`; mixing types into value imports breaks the build.
-- **Re-exports are explicit (`export { X } from "..."`), not `export *`.** Barrels in `collections/dtos`, `collections/schemas`, `collections/value-objects` are sorted alphabetically. The `entity/symbols` barrel is the one exception — its order matches the README's "Symbols" table on purpose.
-- **TSDoc is mandatory** on every non-test source file. The convention is descriptions + `@param` + `@returns` + `@throws` + `@typeParam` + `@example` + `@see`, with `@module` (or `@packageDocumentation` for the root) on every barrel. When a "naming collision" symbol/value pair exists, both files cross-reference each other via `@see`.
+- **Re-exports are explicit (`export { X } from "..."`), not `export *`.** Barrels are sorted alphabetically.
+- **TSDoc is mandatory** on every non-test source file, in **English** — descriptions + `@param` + `@returns` + `@throws` + `@typeParam` + `@example` + `@see`, with `@module` (or `@packageDocumentation` for the root) on every barrel. Runtime error messages are English too.
 - **Don't use `any` in tests.** Stay strict with the real types (rule from `.agent/rules/dont-use-any-type.md`).
 - **`bun:test` is the only testing framework** (rule from `.agent/rules/use-bun-test.md`).
 
 ## Agent context (`.agent/`)
 
-`.agent/` is a git submodule of the Caffeine.js Agent Guide reused here as the Roastery agent context. It contains shared rules (`.agent/rules/*.md` — language style, no-`any` in tests, `bun:test`, Biome guidance) and workflows (`.agent/workflows/*.md` — `smart-commit`, layered review workflows). Note the rules occasionally reference `@caffeine/*` packages — the equivalents in this repo are `@roastery/beans/entity/helpers` (`generateUUID`, `slugify`) and `@roastery/beans/entity/factories` (`makeEntity`).
+`.agent/` is a git submodule of the Caffeine.js Agent Guide reused here as the Roastery agent context. It contains shared rules (`.agent/rules/*.md` — language style, no-`any` in tests, `bun:test`, Biome guidance) and workflows (`.agent/workflows/*.md` — `smart-commit`, layered review workflows). Note the rules occasionally reference `@caffeine/*` packages — the closest equivalent in this repo is `@roastery/beans/entity/helpers` (`blueprint`, `deepEquals`, `generateUUID`). The rules also mention entity factories, which this package no longer ships: fresh identity comes from the `Entity` base itself, and fixtures from `X.demo()`.
