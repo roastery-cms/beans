@@ -1,20 +1,23 @@
-import { StringDTO } from "@/collections/dtos/string.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link StringDTO} (non-empty string).
+ * TypeBox schema for strings, with **no length constraint** — `""` is a valid
+ * value.
  *
- * Reused by {@link DefinedStringVO}; there is no dedicated `defined-string` schema.
+ * The companion {@link StringVO} reuses this schema directly, since the
+ * value-object adds semantics rather than a structurally different shape.
  *
- * @example
- * ```ts
- * import { StringSchema } from "@roastery/beans/collections";
+ * When a property must not be empty, this is not the schema for it: reach for
+ * one that carries the constraint ({@link SlugSchema}, {@link EmailSchema}) or
+ * declare it on the domain's own value-object.
  *
- * StringSchema.match("hello"); // true
- * StringSchema.match("");      // false (empty)
- * ```
- *
- * @see {@link StringDTO}
- * @see {@link DefinedStringVO}
+ * @see {@link StringVO}
  */
-export const StringSchema = Schema.make(StringDTO);
+export const StringSchema = t.String({
+	description: "A string value of any length.",
+	examples: ["Hello World"],
+});
+
+/** Static type of {@link StringSchema} — equivalent to `string`. */
+export type StringSchema = ToDTO<typeof StringSchema>;

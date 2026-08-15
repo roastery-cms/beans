@@ -1,37 +1,69 @@
-import type { Schema } from "@roastery/terroir/schema";
-import type { EntityContext, EntitySchema, EntitySource } from "../symbols";
-import type { IRawEntity } from "./raw-entity.interface";
-import type { IValueObjectMetadata } from "@/value-object/types";
-import type { t } from "@roastery/terroir";
+import type { Context, Properties, Source } from "@roastery/terroir/symbols";
+import type { ContextOf } from "./context-of.type";
+import type { EntitySchemaOf } from "./entity-schema-of.type";
+import type { InputValueOf } from "./input-value-of.type";
+import type { InputValuesOf } from "./input-values-of.type";
+import type { PropertiesShapeBase } from "./properties-shape-base.type";
+import type { ReadValueOf } from "./read-value-of.type";
+import type { ReadableKey } from "./readable-key.type";
+import type { SerializedEntity } from "./serialized-entity.type";
 
 /**
- * Behavioural contract of every domain entity, on top of the data fields
- * defined by {@link IRawEntity}. Implemented by the {@link Entity} abstract
- * class; consumed as a generic constraint by {@link Mapper.toDTO} and
- * `ParseEntityToDTOService.run`.
+ * Behavioural contract of every domain entity. Implemented by the `Entity`
+ * abstract class; useful on its own to type code that consumes entities
+ * without naming a concrete subclass.
  *
- * The three symbol-keyed members tag the entity with the metadata required for
- * validation and DTO mapping. Symbols (rather than string keys) keep these
- * properties invisible to the mapper's iteration walk so they never leak into
- * the produced DTO.
+ * The three symbol-keyed members mirror the slots the base class fills during
+ * construction: the entity-type name under `[Source]`, the blueprint under
+ * `[Properties]` and the built property map under `[Context]`.
  *
- * @typeParam SchemaType - TypeBox schema type validating the full DTO. Constrained
- *   to {@link t.TSchema}; flows into the `[EntitySchema]` field type.
+ * @typeParam PropertiesShape - The entity's blueprint shape. Defaults to
+ *   {@link PropertiesShapeBase} so the interface can be used unparameterised.
  *
- * @see {@link Entity} — the abstract class implementing this contract.
- * @see {@link IRawEntity} — the data fields this interface extends.
+ * @see {@link IRawEntity} — the serialized identity fields.
+ * @see {@link SerializedEntity} — what `toJSON()` returns.
  */
-export interface IEntity<SchemaType extends t.TSchema> extends IRawEntity {
-	/** Stable entity-type identifier (e.g. `"post"`, `"user"`). */
-	readonly [EntitySource]: string;
+export interface IEntity<
+	PropertiesShape extends PropertiesShapeBase = PropertiesShapeBase,
+> {
+	/** Stable entity-type identifier (e.g. `"post"`), from `defineEntity()`. */
+	readonly [Source]: string;
 
-	/** Validation schema for the entity's DTO; bound by each subclass. */
-	readonly [EntitySchema]: Schema<SchemaType>;
+	/** The blueprint: one `ValueObject`/`Entity` class per domain property. */
+	readonly [Properties]: PropertiesShape;
 
-	/**
-	 * Builds a fresh `IValueObjectMetadata` payload tagged with `[EntitySource]`.
-	 * Subclasses pass the result into every value-object factory so validation
-	 * errors carry both the field name and the owning entity type.
-	 */
-	[EntityContext](name: string): IValueObjectMetadata;
+	/** The built property map: identity VOs plus one instance per blueprint key. */
+	readonly [Context]: ContextOf<PropertiesShape>;
+
+	/** Entity id (UUID v7 string). */
+	get id(): string;
+
+	/** Creation timestamp (ISO 8601 string). */
+	get createdAt(): string;
+
+	/** Last-update timestamp; `undefined` until the first mutation stamps it. */
+	get updatedAt(): string | undefined;
+
+	/** Aggregate TypeBox schema, derived from the blueprint. */
+	get schema(): EntitySchemaOf<PropertiesShape>;
+
+	/** Serializes to a plain object: identity plus one raw value per property. */
+	toJSON(): SerializedEntity<PropertiesShape>;
+
+	/** JSON-string form of {@link IEntity.toJSON}. */
+	toString(): string;
+
+	/** Replaces one property from its raw value. Delegates to `setMany`. */
+	set<Key extends keyof PropertiesShape>(
+		key: Key,
+		value: InputValueOf<PropertiesShape[Key]>,
+	): void;
+
+	/** Atomically replaces many properties; stamps `updatedAt` once if anything changed. */
+	setMany(values: Partial<InputValuesOf<PropertiesShape>>): void;
+
+	/** Reads one key: identity string, nested instance, or wrapped raw value. */
+	get<Key extends ReadableKey<PropertiesShape>>(
+		key: Key,
+	): ReadValueOf<PropertiesShape, Key>;
 }

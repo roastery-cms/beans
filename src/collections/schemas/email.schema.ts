@@ -1,17 +1,18 @@
-import { EmailDTO } from "@/collections/dtos/email.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link EmailDTO}.
+ * TypeBox schema for email-address strings.
  *
- * @example
- * ```ts
- * import { EmailSchema } from "@roastery/beans/collections";
- *
- * EmailSchema.match("user@example.com"); // true
- * EmailSchema.match("not-an-email");     // false
- * ```
- *
- * @see {@link EmailDTO}
+ * Validation is delegated to the `"email"` format registered in
+ * `@roastery/terroir/schema/formats`. The format is permissive (it does not
+ * verify deliverability or DNS) and follows the JSON Schema email convention.
  */
-export const EmailSchema = Schema.make(EmailDTO);
+export const EmailSchema = t.String({
+	format: "email",
+	description: "A valid email address.",
+	examples: ["user@example.com"],
+});
+
+/** Static type of {@link EmailSchema} — equivalent to `string`. */
+export type EmailSchema = ToDTO<typeof EmailSchema>;

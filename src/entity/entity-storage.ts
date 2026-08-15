@@ -1,33 +1,34 @@
 /**
  * Per-entity transient `string → string` cache.
  *
- * Attached to every {@link Entity} instance via the homonymous {@link EntityStorage}
- * symbol so subclasses can park values that belong to the entity but don't deserve
- * a public field on the DTO (cached lookups, derived flags, conversation state, etc.).
+ * Attached to every `Entity` instance under the `Storage` symbol (from
+ * `@roastery/terroir/symbols`) so subclasses can park values that belong to the
+ * entity but don't deserve a place in the blueprint (cached lookups, derived
+ * flags, conversation state, etc.). The slot is `protected` — a subclass
+ * exposes whatever facade it wants over `this[Storage]` — and it never reaches
+ * `toJSON()` or the derived schema.
  *
- * The store is **deliberately stringly-typed**: callers serialise on the way in and
- * parse on the way out. This keeps the runtime shape uniform and makes the storage
- * trivially serialisable for tests and snapshots. If you need a typed value, wrap
- * the access at the call-site rather than generalising this class.
+ * The store is **deliberately stringly-typed**: callers serialise on the way in
+ * and parse on the way out. This keeps the runtime shape uniform and makes the
+ * storage trivially serialisable for tests and snapshots. If you need a typed
+ * value, wrap the access at the call-site rather than generalising this class.
  *
- * The class name `EntityStorage` is shared with the symbol of the same name used
- * to key the per-entity instance — they are paired by design.
- *
- * @see {@link EntityStorage} (symbol) — protected accessor on `Entity` that returns this class.
+ * @see `Storage` in `@roastery/terroir/symbols` — the symbol keying the
+ *   per-entity instance.
  *
  * @example
  * ```ts
+ * import { Storage } from "@roastery/terroir/symbols";
  * import { Entity } from "@roastery/beans";
- * import { EntityStorage } from "@roastery/beans/entity";
  *
- * class Post extends Entity<typeof PostDTO> {
+ * class Post extends Entity<typeof postProperties> {
  *   public addTag(tag: string): void {
- *     const current = this[EntityStorage].get("tags") ?? "";
- *     this[EntityStorage].set("tags", current ? `${current},${tag}` : tag);
+ *     const current = this[Storage].get("tags") ?? "";
+ *     this[Storage].set("tags", current ? `${current},${tag}` : tag);
  *   }
  *
  *   public getTags(): string[] {
- *     return (this[EntityStorage].get("tags") ?? "").split(",").filter(Boolean);
+ *     return (this[Storage].get("tags") ?? "").split(",").filter(Boolean);
  *   }
  * }
  * ```

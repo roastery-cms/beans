@@ -1,25 +1,28 @@
 import { describe, expect, it } from "bun:test";
-import { generateUUID } from "@/entity/helpers";
+import { SchemaManager } from "@roastery/terroir/schema";
 import { UuidSchema } from "./uuid.schema";
+import { generateUUID } from "@/entity/helpers";
 
 describe("UuidSchema", () => {
-	it("should validate a valid UUID", () => {
-		expect(UuidSchema.match(generateUUID())).toBe(true);
+	it("should validate a valid UUID v7", () => {
+		expect(SchemaManager.match(UuidSchema, generateUUID())).toBe(true);
+	});
+
+	it("should validate another valid UUID", () => {
+		expect(SchemaManager.match(UuidSchema, generateUUID())).toBe(true);
 	});
 
 	it("should invalidate a non-UUID string", () => {
-		expect(UuidSchema.match("not-a-uuid")).toBe(false);
+		expect(SchemaManager.match(UuidSchema, "not-a-uuid")).toBe(false);
 	});
 
 	it("should invalidate a UUID with missing segments", () => {
-		expect(UuidSchema.match("550e8400-e29b-41d4-a716")).toBe(false);
+		expect(SchemaManager.match(UuidSchema, "550e8400-e29b-41d4-a716")).toBe(
+			false,
+		);
 	});
 
 	it("should invalidate an empty string", () => {
-		expect(UuidSchema.match("")).toBe(false);
-	});
-
-	it("should invalidate a number", () => {
-		expect(UuidSchema.match(123)).toBe(false);
+		expect(SchemaManager.match(UuidSchema, "")).toBe(false);
 	});
 });

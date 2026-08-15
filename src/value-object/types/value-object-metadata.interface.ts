@@ -1,28 +1,35 @@
+import type { t } from "@roastery/terroir";
+
 /**
- * Identification context attached to every {@link ValueObject} instance.
+ * What a `ValueObject` **is**: the schema that validates its values and the
+ * default it falls back to in demo mode. This is what a subclass's
+ * `defineMeta()` returns, and what the base stores under the `Meta` symbol.
  *
- * Used by `@roastery/terroir`'s `InvalidPropertyException` to build error messages
- * shaped like `"Property '<name>' of '<source>' is invalid"`. An entity provides
- * a fresh metadata literal per value-object via its `[EntityContext](name)` method,
- * so `name` is the **field name** and `source` is the **entity type/class name**.
+ * Two rules bind the pair together:
  *
- * Both fields are `readonly`: metadata is fixed at construction and never reassigned.
+ * - **`default` must pass `model`.** The base validates the default like any
+ *   other value, so an invalid default makes `demo()` throw — and breaks the
+ *   schema of any entity whose blueprint includes the class.
+ * - **`default` may be a thunk, and should be whenever it is expensive.**
+ *   `defineMeta()` runs on every construction, so a computed value would be
+ *   evaluated even when a real value is given and the default thrown away; a
+ *   thunk is only invoked in demo mode. Note the base does **not** run
+ *   `transform` over defaults — declare them already in canonical form.
+ *
+ * @typeParam ValueType - Runtime type of the value the VO wraps.
+ * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
  *
  * @example
  * ```ts
- * const info: IValueObjectMetadata = { name: "email", source: "User" };
+ * protected defineMeta(): IValueObjectMetadata<string, typeof UuidDTO> {
+ *   return { default: generateUUID, schema: UuidSchema };
+ * }
  * ```
  */
-export interface IValueObjectMetadata {
-	/**
-	 * Property name being validated (e.g. `"id"`, `"createdAt"`, `"email"`).
-	 * Surfaces verbatim in `InvalidPropertyException.message`.
-	 */
-	readonly name: string;
+export interface IValueObjectMetadata<ValueType, SchemaType extends t.TSchema> {
+	/** Demo-mode fallback: a ready value, or a thunk for expensive defaults. */
+	readonly default: ValueType | (() => ValueType);
 
-	/**
-	 * Owning entity's identifier (e.g. `"User"`, `"Post"`). Conventionally the value
-	 * passed to `Entity`'s constructor as `entitySource` — the entity type, not an instance id.
-	 */
-	readonly source: string;
+	/** Compiled schema every wrapped value (defaults included) must pass. */
+	readonly schema: SchemaType;
 }

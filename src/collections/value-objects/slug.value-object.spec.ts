@@ -1,27 +1,23 @@
-import { describe, expect, it } from "bun:test";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
+import { describe, expect, it } from "bun:test";
 import { SlugVO } from "./slug.value-object";
 
+const context = { name: "slug", source: "spec" };
+
 describe("SlugVO", () => {
-	it("should create a valid slug from a string", () => {
-		const slug = SlugVO.make("My Title", {
-			name: "slug",
-			source: "domain",
-		});
-		expect(slug.value).toBe("my-title");
+	it("slugifies free-form input before validating", () => {
+		expect(new SlugVO("My Cool Post!", context).value).toBe("my-cool-post");
 	});
 
-	it("should keep an already valid slug", () => {
-		const slug = SlugVO.make("my-title", {
-			name: "slug",
-			source: "domain",
-		});
-		expect(slug.value).toBe("my-title");
+	it("keeps an already-valid slug untouched", () => {
+		expect(new SlugVO("my-cool-post", context).value).toBe("my-cool-post");
 	});
 
-	it("should throw InvalidPropertyException for invalid value", () => {
-		expect(() => SlugVO.make("", { name: "slug", source: "domain" })).toThrow(
-			InvalidPropertyException,
-		);
+	it("rejects input whose slugified form is still invalid", () => {
+		expect(() => new SlugVO("", context)).toThrow(InvalidPropertyException);
+	});
+
+	it('demo() falls back to the canonical "slug"', () => {
+		expect(SlugVO.demo(context).value).toBe("slug");
 	});
 });

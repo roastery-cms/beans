@@ -1,28 +1,35 @@
 import { describe, expect, it } from "bun:test";
+import { SchemaManager } from "@roastery/terroir/schema";
 import { PasswordSchema } from "./password.schema";
 
 describe("PasswordSchema", () => {
 	it("should validate a correct password", () => {
-		expect(PasswordSchema.match("StrongPassword1!")).toBe(true);
+		const validPassword = "StrongPassword1!";
+		expect(SchemaManager.match(PasswordSchema, validPassword)).toBe(true);
 	});
 
 	it("should invalidate password with less than 7 characters", () => {
-		expect(PasswordSchema.match("Ab1!")).toBe(false);
+		const shortPassword = "Ab1!";
+		expect(SchemaManager.match(PasswordSchema, shortPassword)).toBe(false);
 	});
 
 	it("should invalidate password without lowercase letters", () => {
-		expect(PasswordSchema.match("PASSWORD1!")).toBe(false);
+		const noLowercase = "PASSWORD1!";
+		expect(SchemaManager.match(PasswordSchema, noLowercase)).toBe(false);
 	});
 
 	it("should invalidate password without uppercase letters", () => {
-		expect(PasswordSchema.match("password1!")).toBe(false);
+		const noUppercase = "password1!";
+		expect(SchemaManager.match(PasswordSchema, noUppercase)).toBe(false);
 	});
 
 	it("should invalidate password without numbers", () => {
-		expect(PasswordSchema.match("Password!")).toBe(false);
+		const noNumber = "Password!";
+		expect(SchemaManager.match(PasswordSchema, noNumber)).toBe(false);
 	});
 
 	it("should invalidate password without special characters", () => {
-		expect(PasswordSchema.match("Password123")).toBe(false);
+		const noSpecial = "Password123";
+		expect(SchemaManager.match(PasswordSchema, noSpecial)).toBe(false);
 	});
 });

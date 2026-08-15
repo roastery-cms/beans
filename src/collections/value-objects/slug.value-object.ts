@@ -1,53 +1,45 @@
+import slugify from "slugify";
 import { ValueObject } from "@/value-object";
 import type { IValueObjectMetadata } from "@/value-object/types";
-import type { Schema } from "@roastery/terroir/schema";
-import { slugify } from "@/entity/helpers";
-import type { SlugDTO } from "../dtos";
 import { SlugSchema } from "../schemas";
 
 /**
- * Value-object wrapper around a URL-safe slug. Validates against {@link SlugSchema}.
+ * URL-safe slug value-object. Validates against {@link SlugSchema}.
  *
- * Unlike most VOs, `make` **transforms** the input via {@link slugify} *before*
- * validation. That means `SlugVO.make("My Cool Post", info)` succeeds and the
- * stored `value` is `"my-cool-post"`. If you need to reject (rather than
- * normalise) malformed input, validate the raw string against {@link SlugSchema}
- * directly before invoking the factory.
+ * Unlike most VOs, it **transforms** the input via {@link slugify} *before*
+ * validation: `new SlugVO("My Cool Post", context)` succeeds and the stored
+ * `value` is `"my-cool-post"`. If you need to reject (rather than normalise)
+ * malformed input, validate the raw string against {@link SlugSchema} directly
+ * before constructing.
  *
- * @see {@link SlugDTO}
+ * The demo default is already in canonical form — `transform` does not run
+ * over defaults.
+ *
  * @see {@link SlugSchema}
  * @see {@link slugify}
  *
  * @example
  * ```ts
- * import { SlugVO } from "@roastery/beans/collections";
- *
- * const info = { name: "slug", source: "Post" };
- * SlugVO.make("My Cool Post!", info); // stored value: "my-cool-post"
+ * new SlugVO("My Cool Post!", { name: "slug", source: "post" }).value; // "my-cool-post"
  * ```
  */
-export class SlugVO extends ValueObject<string, typeof SlugDTO> {
-	protected override readonly schema: Schema<typeof SlugDTO> = SlugSchema;
-
-	protected constructor(value: string, info: IValueObjectMetadata) {
-		super(value, info);
+export class SlugVO extends ValueObject<string, typeof SlugSchema> {
+	/** @returns The slug schema and an already-canonical demo default. */
+	protected defineMeta(): IValueObjectMetadata<string, typeof SlugSchema> {
+		return { default: "slug", schema: SlugSchema };
 	}
 
 	/**
-	 * Slugifies `value` and wraps the result, validating before returning.
+	 * Slugifies the raw input before validation.
 	 *
-	 * @param value - Free-form input. Passed through {@link slugify} before
-	 *   being stored — the `value` exposed by the resulting VO is the
-	 *   normalised slug, not the original input.
-	 * @param info - Metadata for error context.
-	 * @throws `InvalidPropertyException` — when the slugified output fails
-	 *   {@link SlugSchema} validation (e.g. an input that slugifies to the empty string).
+	 * @param value - Free-form input.
+	 * @returns Its slugified form, which will be validated and stored.
 	 */
-	public static make(value: string, info: IValueObjectMetadata): SlugVO {
-		const newVO = new SlugVO(slugify(value), info);
-
-		newVO.validate();
-
-		return newVO;
+	protected override transform(value: string): string {
+		return slugify(value, {
+			lower: true,
+			strict: true,
+			trim: true,
+		});
 	}
 }

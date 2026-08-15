@@ -1,33 +1,40 @@
+import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import { describe, expect, it } from "bun:test";
 import { BooleanVO } from "./boolean.value-object";
 
+const context = { name: "published", source: "spec" };
+
 describe("BooleanVO", () => {
-	const info = { name: "active", source: "domain" };
-
-	it("should create a valid true instance", () => {
-		const vo = BooleanVO.make(true, info);
-		expect(vo.value).toBe(true);
+	it("wraps true", () => {
+		expect(new BooleanVO(true, context).value).toBe(true);
 	});
 
-	it("should create a valid false instance", () => {
-		const vo = BooleanVO.make(false, info);
-		expect(vo.value).toBe(false);
+	it("wraps false", () => {
+		expect(new BooleanVO(false, context).value).toBe(false);
 	});
 
-	it("should create truthy instance with truthy static method", () => {
-		const vo = BooleanVO.truthy(info);
-		expect(vo.value).toBe(true);
+	it("rejects a non-boolean value", () => {
+		expect(() => new BooleanVO("yes" as unknown as boolean, context)).toThrow(
+			InvalidPropertyException,
+		);
 	});
 
-	it("should create falsy instance with falsy static method", () => {
-		const vo = BooleanVO.falsy(info);
-		expect(vo.value).toBe(false);
+	it("demo() falls back to true", () => {
+		expect(BooleanVO.demo(context).value).toBe(true);
 	});
 
-	it("should create instance from unknown values using 'from'", () => {
-		expect(BooleanVO.from(1, info).value).toBe(true);
-		expect(BooleanVO.from("hello", info).value).toBe(true);
-		expect(BooleanVO.from(0, info).value).toBe(false);
-		expect(BooleanVO.from(null, info).value).toBe(false);
+	it("truthy() wraps true and falsy() wraps false", () => {
+		expect(BooleanVO.truthy(context).value).toBe(true);
+		expect(BooleanVO.falsy(context).value).toBe(false);
+	});
+
+	it("from() coerces any value with !!", () => {
+		expect(BooleanVO.from("yes", context).value).toBe(true);
+		expect(BooleanVO.from(1, context).value).toBe(true);
+		expect(BooleanVO.from({}, context).value).toBe(true);
+		expect(BooleanVO.from(0, context).value).toBe(false);
+		expect(BooleanVO.from("", context).value).toBe(false);
+		expect(BooleanVO.from(null, context).value).toBe(false);
+		expect(BooleanVO.from(undefined, context).value).toBe(false);
 	});
 });

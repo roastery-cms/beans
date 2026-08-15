@@ -1,18 +1,17 @@
-import { NumberDTO } from "@/collections/dtos/number.dto";
-import { Schema } from "@roastery/terroir/schema";
+import { t } from "@roastery/terroir";
+import type { ToDTO } from "@roastery/terroir/schema/types";
 
 /**
- * Runtime `Schema` instance wrapping {@link NumberDTO}.
+ * TypeBox schema for non-negative numbers (`>= 0`).
  *
- * @example
- * ```ts
- * import { NumberSchema } from "@roastery/beans/collections";
- *
- * NumberSchema.match(42);   // true
- * NumberSchema.match(-1);   // false (negative)
- * NumberSchema.match("42"); // false (not a number)
- * ```
- *
- * @see {@link NumberDTO}
+ * Accepts both integers and floats; reject negatives via the `minimum: 0`
+ * constraint. Use a custom schema if a different lower bound is required.
  */
-export const NumberSchema = Schema.make(NumberDTO);
+export const NumberSchema = t.Number({
+	minimum: 0,
+	description: "A non-negative numeric value.",
+	examples: [42],
+});
+
+/** Static type of {@link NumberSchema} — equivalent to `number`. */
+export type NumberSchema = ToDTO<typeof NumberSchema>;
