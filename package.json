@@ -1,7 +1,7 @@
 {
 	"name": "@roastery/beans",
-	"description": "DDD building blocks for the Roastery CMS ecosystem — Entities, Value Objects, DTOs, and Schemas.",
-	"version": "0.2.0",
+	"description": "DDD building blocks for the Roastery CMS ecosystem — blueprint-driven Entities and self-validating Value Objects (including optional, nullable, and enum variants), backed by TypeBox schemas.",
+	"version": "0.2.1",
 	"type": "module",
 	"author": {
 		"name": "Alan Reis",
@@ -21,7 +21,13 @@
 		"@roastery",
 		"beans",
 		"@roastery/beans",
-		"roastery-beans"
+		"roastery-beans",
+		"typescript",
+		"typebox",
+		"entity",
+		"value-object",
+		"schema",
+		"validation"
 	],
 	"main": "./dist/index.cjs",
 	"module": "./dist/index.js",

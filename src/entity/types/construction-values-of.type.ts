@@ -2,14 +2,18 @@ import type { DomainKeys } from "./domain-keys.type";
 import type { InputValueOf } from "./input-value-of.type";
 import type { PropertiesShapeBase } from "./properties-shape-base.type";
 import type { RuledKeys } from "./ruled-keys.type";
+import type { UndefinedableKeys } from "./undefinedable-keys.type";
 
 /**
  * The domain half of a construction payload: one raw input value per blueprint
- * property, with the **ruled** keys optional — those are the ones the base can
- * fill from a `default` or a `derive`.
+ * property, with the **ruled** keys and the **`undefined`-accepting** keys
+ * optional — the former the base can fill from a `default`/`derive`, the
+ * latter already accept `undefined` as a value in their own right (built with
+ * `optionalVO`), so omitting the key entirely is no different at runtime.
  *
- * For a plain blueprint {@link RuledKeys} is `never`, so every key stays
- * required and this collapses into the original `InputValuesOf`.
+ * For a plain blueprint with no rules and no `optionalVO`-backed properties,
+ * both {@link RuledKeys} and {@link UndefinedableKeys} are `never`, so every
+ * key stays required and this collapses into the original `InputValuesOf`.
  *
  * @typeParam PropertiesShape - The entity's blueprint shape.
  *
@@ -22,11 +26,11 @@ export type ConstructionValuesOf<PropertiesShape extends PropertiesShapeBase> =
 	{
 		[Key in Exclude<
 			DomainKeys<PropertiesShape>,
-			RuledKeys<PropertiesShape>
+			RuledKeys<PropertiesShape> | UndefinedableKeys<PropertiesShape>
 		>]: InputValueOf<PropertiesShape[Key]>;
 	} & {
 		[Key in Extract<
 			DomainKeys<PropertiesShape>,
-			RuledKeys<PropertiesShape>
+			RuledKeys<PropertiesShape> | UndefinedableKeys<PropertiesShape>
 		>]?: InputValueOf<PropertiesShape[Key]>;
 	};

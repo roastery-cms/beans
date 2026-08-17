@@ -10,6 +10,9 @@
  * 	title: customStringVO({ options: { minLength: 4, maxLength: 120 }, default: "title" }),
  * 	views: customNumberVO({ options: { minimum: 0 } }),
  * 	tags: customArrayVO(SlugSchema, { options: { minItems: 1 }, default: ["tag"] }),
+ * 	status: customEnumVO(["draft", "published", "archived"], { default: "draft" }),
+ * 	subtitle: optionalVO(StringSchema),
+ * 	deletedAt: nullableVO(DateTimeSchema),
  * 	metadata: customRecordVO(),
  * };
  * ```
@@ -31,8 +34,11 @@
  *
  * Re-exports:
  * - {@link customArrayVO}  — array constrained by an item schema.
+ * - {@link customEnumVO}   — one of a fixed set of literal values, built on `t.Enum`.
+ * - {@link nullableVO}     — wraps a schema so its value may also be `null` (key stays required).
  * - {@link customNumberVO} — number constrained by bounds.
  * - {@link customObjectVO} — object with a declared shape (`default` required).
+ * - {@link optionalVO}     — wraps a schema so its value may also be `undefined` (key becomes optional).
  * - {@link customRecordVO} — free-form object, no declared shape.
  * - {@link customStringVO} — string constrained by length, pattern or format.
  * - {@link defineValueObject} — the core the others lower into.
@@ -42,7 +48,10 @@ import "@roastery/terroir/schema/formats";
 
 export { customArrayVO } from "./array.factory";
 export { defineValueObject } from "./define-value-object";
+export { customEnumVO } from "./enum.factory";
+export { nullableVO } from "./nullable.factory";
 export { customNumberVO } from "./number.factory";
 export { customObjectVO } from "./object.factory";
+export { optionalVO } from "./optional.factory";
 export { customRecordVO } from "./record.factory";
 export { customStringVO } from "./string.factory";

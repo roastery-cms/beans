@@ -1,13 +1,16 @@
 import type { Properties } from "@roastery/terroir/symbols";
 import type { AnyEntityClass } from "./any-entity-class.type";
 import type { Optionalize } from "./optionalize.type";
+import type { PropertiesShapeBase } from "./properties-shape-base.type";
 import type { IRawEntity } from "./raw-entity.interface";
 import type { RuledKeys } from "./ruled-keys.type";
+import type { UndefinedableKeys } from "./undefinedable-keys.type";
 
 /**
  * The domain half of a nested entity's input payload: its serialized
  * properties minus the identity, with the keys its **own** blueprint rules
- * cover made optional.
+ * cover, and the keys its own blueprint already lets be `undefined` (built
+ * with `optionalVO`), made optional.
  *
  * Without this, a nested entity would be stricter than the same entity built
  * on its own — `new Post({ tag: { name: "x" } })` would be a type error while
@@ -29,7 +32,11 @@ import type { RuledKeys } from "./ruled-keys.type";
  */
 export type NestedEntityInput<Class extends AnyEntityClass> = Optionalize<
 	Omit<ReturnType<Class["prototype"]["toJSON"]>, keyof IRawEntity>,
-	Class extends { readonly prototype: { [Properties]: infer Shape } }
-		? RuledKeys<Shape>
+	Class extends {
+		readonly prototype: {
+			[Properties]: infer Shape extends PropertiesShapeBase;
+		};
+	}
+		? RuledKeys<Shape> | UndefinedableKeys<Shape>
 		: never
 >;

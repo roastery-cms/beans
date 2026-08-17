@@ -1,6 +1,6 @@
 # @roastery/beans
 
-DDD building blocks for the [Roastery CMS](https://github.com/roastery-cms) ecosystem — base abstractions for **Entities**, **Value Objects**, **DTOs**, and **Schemas**.
+DDD building blocks for the [Roastery CMS](https://github.com/roastery-cms) ecosystem — base abstractions for **Entities**, **Value Objects** (including optional, nullable, and enum variants), and **Schemas**.
 
 [![Checked with Biome](https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&logo=biome)](https://biomejs.dev)
 
@@ -10,7 +10,7 @@ DDD building blocks for the [Roastery CMS](https://github.com/roastery-cms) ecos
 
 - **Entity** — Abstract, blueprint-driven base class. Declare which `ValueObject` (or nested `Entity`) class backs each property and the base derives everything else: validated construction, `toJSON`/`fromJSON`, atomic `set`/`setMany` with automatic `updatedAt` stamping, typed accessors, and an aggregate TypeBox schema. `id` (UUID v7), `createdAt`, and `updatedAt` come built in.
 - **ValueObject** — Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()`; validation runs in the constructor and throws `InvalidPropertyException` on invalid data.
-- **Collections** — Ready-to-use Value Objects and TypeBox schemas for common types (UUID, email, slug, datetime, etc.), one pair per primitive.
+- **Collections** — Ready-to-use Value Objects and TypeBox schemas for common types (UUID, email, slug, datetime, etc.), one pair per primitive, plus `Optional*`/`Nullable*` variants of every one and factories (`customStringVO`, `customEnumVO`, `optionalVO`, `nullableVO`, …) for ad hoc constraints.
 
 ## Technologies
 
@@ -148,6 +148,8 @@ The ruled keys become **optional in the constructor payload** — that is the wh
 | Schema and `fromJSON` | unchanged — rules act on input only, `toJSON()` always emits every property, and hydration stays as strict as ever |
 | Nesting | a nested entity's rules apply to its raw payload, so `new Post({ tag: { name: "Alan Reis" } })` is as valid nested as it is on its own — including through `set("tag", raw)` and in `demo()` |
 
+A key backed by an [`Optional*VO`](#optional--nullable-value-objects) (or any `optionalVO(schema)`) gets that same optional-payload treatment **without needing a rule at all** — `subtitle?: string` compiles on its own. `Nullable*VO`/`nullableVO` keys do not: `null` is a value to state, not an omission.
+
 `default` and `derive` are mutually exclusive, and a rule must name a property the blueprint declares — both are compile errors, and both throw `InvalidEntityDefinitionException` at runtime for plain-JS callers.
 
 Two phases (`blueprint(…).with(…)`) because a literal cannot reference its own `typeof`: the first call fixes the shape, which is what makes `raw` fully typed inside `with`. A blueprint with no rules stays a plain object literal, exactly as before.
@@ -258,6 +260,37 @@ const now = DateTimeVO.now(context);          // wraps the current ISO timestamp
 const flag = BooleanVO.from(1, context);      // .value === true
 ```
 
+### Optional & nullable value objects
+
+Every VO above has two ready-made variations, one subpath each, both built on top of the exact same schema — no separate constraints to keep in sync:
+
+```typescript
+import { OptionalStringVO, OptionalUuidVO } from "@roastery/beans/collections/value-objects/optional";
+import { NullableStringVO, NullableUuidVO } from "@roastery/beans/collections/value-objects/nullable";
+```
+
+| | `Optional<X>VO` | `Nullable<X>VO` |
+|---|---|---|
+| Accepts | the real value, or `undefined` | the real value, or `null` |
+| Demo-mode default | `undefined` | `null` |
+| Blueprint key in the constructor payload | **optional** — `subtitle?: string` | **required** — `subtitle: string \| null` |
+| Meaning | may not have been provided | provided, and explicitly empty |
+
+The distinction is deliberate, not cosmetic: a request body typically omits a field it doesn't have (`undefined`), while a database column typically states its absence explicitly (`NULL`). Reach for the one that matches what's actually on the other end.
+
+```typescript
+const postProperties = {
+  subtitle: OptionalStringVO,   // may be omitted from the payload entirely
+  deletedAt: NullableUuidVO,    // must be named — either an id or `null`
+};
+
+new Post({ title: "Hi" });                          // subtitle omitted — fine
+new Post({ title: "Hi", deletedAt: null });          // deletedAt stated explicitly
+new Post({ title: "Hi", deletedAt: undefined });     // ✗ compile error — deletedAt is not optional
+```
+
+Both are just the corresponding VO's schema wrapped with `optionalVO`/`nullableVO` (below) — `OptionalSlugVO`/`NullableSlugVO` are the one exception that also re-declare `SlugVO`'s `slugify` transform, guarded against `undefined`/`null` respectively. Neither mirrors the required VOs' sugar statics (`BooleanVO.truthy/falsy/from`, `DateTimeVO.now`, `UuidVO.generate`).
+
 ### Custom value objects
 
 The catalog above covers the primitives, not the domain's constraints. When a property needs "at least four characters" or "a non-empty list of UUIDs", declaring a schema plus a subclass for one rule is a lot of ceremony — so `@roastery/beans/collections/value-objects/custom` ships factories that **return a class**, ready to drop into a blueprint:
@@ -265,9 +298,12 @@ The catalog above covers the primitives, not the domain's constraints. When a pr
 ```typescript
 import {
   customArrayVO,
+  customEnumVO,
   customNumberVO,
   customRecordVO,
   customStringVO,
+  nullableVO,
+  optionalVO,
 } from "@roastery/beans/collections/value-objects/custom";
 import { UuidSchema } from "@roastery/beans/collections/schemas";
 
@@ -275,6 +311,9 @@ const postProperties = {
   title: customStringVO({ options: { minLength: 4, maxLength: 120 }, default: "untitled" }),
   views: customNumberVO({ options: { minimum: 0 } }),
   authors: customArrayVO(UuidSchema, { options: { minItems: 1 }, default: () => [generateUUID()] }),
+  status: customEnumVO(["draft", "published", "archived"], { default: "draft" }), // no `as const` needed
+  subtitle: optionalVO(StringSchema),   // may be `undefined`, key becomes optional
+  deletedAt: nullableVO(UuidSchema),    // may be `null`, key stays required
   metadata: customRecordVO(),
 };
 ```
@@ -284,8 +323,11 @@ const postProperties = {
 | `customStringVO(args?)` | `string` | `t.StringOptions` — `minLength`, `maxLength`, `pattern`, `format` | `"string"` |
 | `customNumberVO(args?)` | `number` | `t.NumberOptions` — `minimum`, `maximum`, `multipleOf` | `0` |
 | `customArrayVO(items, args?)` | `Static<items>[]` | `t.ArrayOptions` — `minItems`, `maxItems`, `uniqueItems` | `[]` |
+| `customEnumVO(values, args?)` | one of `values` | `t.SchemaOptions` — `values` is a `const` tuple, no `as const` needed | `values[0]` |
 | `customObjectVO(properties, args)` | the declared shape | `t.ObjectOptions` | — **required** |
 | `customRecordVO(args?)` | `Record<string, unknown>` | `t.ObjectOptions` | `{}` |
+| `optionalVO(schema, args?)` | `Static<schema> \| undefined` | `t.SchemaOptions` — wraps `schema` in `t.Union([schema, t.Undefined()])` | `undefined` |
+| `nullableVO(schema, args?)` | `Static<schema> \| null` | `t.SchemaOptions` — wraps `schema` in `t.Union([schema, t.Null()])` | `null` |
 | `defineValueObject(args)` | whatever the schema says | takes a ready `schema` instead | — **required** |
 
 Every factory accepts the same hooks: `default` (value or thunk), `name` (stamped onto the class, for stack traces), `transform(value)` and `validate(value, context)`. The `validate` hook is a **predicate** running after the schema has already accepted the transformed value; returning `false` raises `InvalidPropertyException` with the owning entity's `name`/`source`, and throwing from inside propagates untouched.
@@ -310,6 +352,8 @@ Key rules:
 - **The default is validated inside the factory call**, not at the first `demo()`. `customStringVO({ options: { minLength: 8 } })` throws `InvalidEntityDefinitionException` at import time, because the `"string"` placeholder is six characters. Thunk defaults are trusted there — evaluating one would defeat its purpose — and the base still validates them in demo mode.
 - **`customObjectVO` requires an explicit `default`.** No placeholder can satisfy an arbitrary set of required properties, so it asks rather than guesses.
 - **`customObjectVO` sets `additionalProperties: false`**, matching how `Entity` emits every level of its aggregate model. Pass `options: { additionalProperties: true }` to opt out.
+- **`customEnumVO`'s `values` is a `const` type parameter**, so `["draft", "published"]` is read as its literal tuple type without `as const` at the call site. The schema is built with TypeBox's native `t.Enum`, not a hand-rolled `t.Union` of `t.Literal`s.
+- **`optionalVO`'s blueprint key becomes optional in the constructor payload**; `nullableVO`'s does not. `undefined` extends "not provided" and the runtime already read a missing key the same way; `null` is a value that has to be stated.
 - Importing anything from this subpath registers the custom string formats, so `customStringVO({ options: { format: "slug" } })` validates against a registered format.
 
 ### Schemas
@@ -374,13 +418,18 @@ import type { IValueObjectContext, IValueObjectMetadata } from "@roastery/beans/
 // Collections (one barrel per kind)
 import { SlugVO, UuidVO } from "@roastery/beans/collections/value-objects";
 import { EmailSchema, UuidSchema } from "@roastery/beans/collections/schemas";
+import { OptionalStringVO, OptionalUuidVO } from "@roastery/beans/collections/value-objects/optional";
+import { NullableStringVO, NullableUuidVO } from "@roastery/beans/collections/value-objects/nullable";
 import {
   customArrayVO,
+  customEnumVO,
   customNumberVO,
   customObjectVO,
   customRecordVO,
   customStringVO,
   defineValueObject,
+  nullableVO,
+  optionalVO,
 } from "@roastery/beans/collections/value-objects/custom";
 import type {
   ICustomValueObjectArgs,
