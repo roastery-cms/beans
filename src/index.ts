@@ -6,11 +6,17 @@
  * The package exposes these import surfaces; pick the one that matches the
  * layer you are working at:
  *
- * - `"@roastery/beans"` (this barrel) — the two top-level pillars
- *   ({@link Entity}, {@link ValueObject}). Almost every consumer starts here.
- * - `"@roastery/beans/entity"` — the entity pillar ({@link Entity}). Subpaths:
- *   `/entity/helpers` (`blueprint`, `deepEquals`, `generateUUID`) and
- *   `/entity/types` (`IEntity`, `IRawEntity`, `AccessorsOf`, …).
+ * - `"@roastery/beans"` (this barrel) — {@link Entity}, {@link ValueObject},
+ *   {@link blueprint} and {@link DomainEvent}: the two base classes plus the
+ *   two things most subclasses declare right alongside them. Almost every
+ *   consumer starts here.
+ * - `"@roastery/beans/entity"` — the entity pillar ({@link Entity} and
+ *   {@link blueprint}). Subpaths: `/entity/helpers` (`blueprint`'s original
+ *   home, plus `deepEquals`, `generateUUID`) and `/entity/types` (`IEntity`,
+ *   `IRawEntity`, `AccessorsOf`, …).
+ * - `"@roastery/beans/domain-event"` — the optional abstract `DomainEvent`
+ *   base for events raised through `Entity.raiseEvent`. Subpath:
+ *   `/domain-event/types` (`IDomainEvent`, the contract it implements).
  * - `"@roastery/beans/value-object"` — the abstract {@link ValueObject} base.
  *   Subpaths: `/value-object/helpers` (`metaOf`) and `/value-object/types`
  *   (`IValueObjectContext`, `IValueObjectMetadata`).
@@ -24,13 +30,18 @@
  * Symbol equality is by reference, so a local redeclaration would read the
  * wrong slot and silently return `undefined`.
  *
- * The intentionally thin root barrel keeps `import { Entity } from "@roastery/beans"`
- * unambiguous; everything more specific lives behind a subpath.
+ * The root barrel stays narrow on purpose: the two base classes plus
+ * `blueprint` and `DomainEvent`, the two things most subclasses need right
+ * alongside them — everything else (types, the rest of `entity/helpers`,
+ * collections) lives behind a subpath.
  *
  * Re-exports:
+ * - {@link blueprint} — declares a blueprint carrying domain rules (`default` / `derive`).
+ * - {@link DomainEvent} — optional abstract base for writing domain-event classes.
  * - {@link Entity} — abstract, blueprint-driven base for domain entities.
  * - {@link ValueObject} — abstract, self-validating base for immutable domain values.
  */
 
-export { Entity } from "./entity";
+export { Entity, blueprint } from "./entity";
 export { ValueObject } from "./value-object";
+export { DomainEvent } from "./domain-event";

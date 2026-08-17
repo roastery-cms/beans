@@ -11,6 +11,7 @@
 
 import { DateTimeSchema, UuidSchema } from "@/collections/schemas";
 import { DateTimeVO, UuidVO } from "@/collections/value-objects";
+import type { IDomainEvent } from "@/domain-event/types";
 import { metaOf } from "@/value-object/helpers";
 import type { IValueObjectContext } from "@/value-object/types";
 import { t } from "@roastery/terroir";
@@ -53,6 +54,7 @@ import { SchemaManager } from "@roastery/terroir/schema";
 import {
 	Context,
 	Demo,
+	Events,
 	Properties,
 	Source,
 	Storage,
@@ -387,6 +389,7 @@ function rawOf(property: AnyValueObject | AnyEntity): unknown {
  * @see {@link IEntity} — the contract this class implements.
  * @see `AccessorsOf` in `./types` — merge it so TypeScript sees the derived accessors.
  * @see {@link EntityStorage} — the transient store under `this[Storage]`.
+ * @see {@link Entity.raiseEvent} and {@link Entity.pullDomainEvents} — the domain-event buffer under `this[Events]`.
  *
  * @example
  * ```ts
@@ -428,6 +431,16 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * `fromJSON`/`demo` (statics have no source instance to carry state from).
 	 */
 	protected readonly [Storage]: EntityStorage;
+
+	/**
+	 * Per-instance buffer of domain events raised via {@link Entity.raiseEvent},
+	 * drained by {@link Entity.pullDomainEvents}. `protected`, like `[Storage]`
+	 * — subclasses go through the two methods rather than touching this
+	 * directly. Never reaches {@link Entity.toJSON} or the schema, and starts
+	 * empty on `fromJSON`/`demo` (statics have no source instance to carry
+	 * state from).
+	 */
+	protected readonly [Events]: IDomainEvent[];
 
 	/**
 	 * Declares what the entity **is**: its blueprint and its entity-type name.
@@ -474,6 +487,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		this[Source] = source;
 		this[Properties] = properties;
 		this[Storage] = new EntityStorage();
+		this[Events] = [];
 		this[Context] = buildContext(
 			properties,
 			source,
@@ -698,5 +712,63 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		return (
 			isEntity(property) ? property : (property as AnyValueObject).value
 		) as ReadValueOf<PropertiesShape, Key>;
+	}
+
+	/**
+	 * Records a domain event, filling in the parts every event shares: the
+	 * raising entity's own `id` and the instant it was raised. The subclass
+	 * supplies only `name` and whatever payload the event carries — never
+	 * `occurredAt`/`aggregateId`, which the base always stamps itself so an
+	 * event can never misreport which entity (or when) it came from. `beans`
+	 * is not event-sourced, so there is no replay path that would need to
+	 * override either field.
+	 *
+	 * Accepts either a built event (an object literal or a `DomainEvent`
+	 * instance) or a bare class reference — a `DomainEvent` subclass whose
+	 * constructor takes only `aggregateId`, i.e. one that adds no payload of
+	 * its own. In that case the base instantiates it itself, passing
+	 * `this.id`, so a payload-less event needs no `new` at the call site:
+	 * `this.raiseEvent(OrderConfirmed)`. A subclass whose constructor needs
+	 * more than `aggregateId` does not satisfy the class-reference overload
+	 * — TypeScript routes it to the "already built" branch instead, so it
+	 * still has to be constructed explicitly with its extra payload.
+	 *
+	 * Never called automatically: `set`/`setMany` do not raise events on
+	 * their own. A subclass calls this from its own business methods, at the
+	 * point a change becomes domain-meaningful. Only the aggregate root
+	 * should call it — an event raised inside a nested entity (`post.get(
+	 * "author").someMethod()`) stays in that nested entity's own buffer;
+	 * `pullDomainEvents` does not recurse through `[Context]` the way
+	 * `toJSON` does.
+	 *
+	 * @typeParam Event - The event, inferred either from the object passed or
+	 *   from the instance type of the class reference passed, so any payload
+	 *   beyond `name` survives without an excess-property error.
+	 * @param event - The event, minus `occurredAt`/`aggregateId` — or a class
+	 *   reference to build one from, with `this.id` as its only argument.
+	 */
+	protected raiseEvent<
+		Event extends Omit<IDomainEvent, "occurredAt" | "aggregateId">,
+	>(event: Event | (new (aggregateId: string) => Event)): void {
+		const built = typeof event === "function" ? new event(this.id) : event;
+
+		this[Events].push({
+			...built,
+			occurredAt: DateTimeVO.now({ name: "occurredAt", source: this[Source] })
+				.value,
+			aggregateId: this.id,
+		});
+	}
+
+	/**
+	 * Drains the buffered domain events: returns everything raised since the
+	 * last pull (or since construction), oldest first, and empties the
+	 * buffer. Starts empty on every construction path (`new`, `fromJSON`,
+	 * `demo`) — there is no source instance to carry events over from.
+	 *
+	 * @returns The events raised since the last pull.
+	 */
+	public pullDomainEvents(): readonly IDomainEvent[] {
+		return this[Events].splice(0);
 	}
 }

@@ -165,8 +165,10 @@ The bases key their internal slots with the ecosystem's well-known symbols, whic
 | `Context` | Identification context of a `ValueObject` / built property map of an `Entity` |
 | `Meta` | Schema + demo default of a `ValueObject` |
 | `Properties` | Blueprint of an `Entity` |
+| `Rules` | Per-property domain rules (`default` / `derive`) a blueprint carries |
 | `Source` | Entity-type name of an `Entity` (e.g. `"post"`) |
 | `Storage` | Per-instance transient store of an `Entity` |
+| `Events` | Per-instance domain-event buffer of an `Entity`, drained by `pullDomainEvents()` |
 | `Demo` | Sentinel that turns a constructor call into demo mode — used by the `demo()` statics |
 
 ### EntityStorage
@@ -197,6 +199,80 @@ The storage API is intentionally minimal:
 | `get(key)` | Returns the value, or `null` if the key does not exist (or a fallback's result, with the two-argument overload) |
 | `set(key, value)` | Stores a value under the given key and returns it |
 | `del(key)` | Removes the entry for the given key |
+
+### Domain events
+
+Each entity instance also has a built-in event buffer. Call the protected `raiseEvent` from a business method to record that something domain-meaningful happened; `set`/`setMany` never raise events on their own — nothing fires automatically. The base stamps `occurredAt` and `aggregateId` itself, so every event carries at least the id of the entity that raised it, and no subclass can get that wrong:
+
+```typescript
+class Order extends Entity<typeof orderProperties> {
+  // ...
+
+  public confirm(): void {
+    this.set("status", "confirmed");
+    this.raiseEvent({ name: "order.confirmed", total: this.total });
+  }
+}
+
+const order = new Order({ /* ... */ });
+order.confirm();
+order.pullDomainEvents();
+// [{ name: "order.confirmed", total: 42, occurredAt: "...", aggregateId: order.id }]
+```
+
+`pullDomainEvents()` is public: call it after a successful `repository.save(order)` to drain and dispatch the events. `beans` stops at the buffer — there is no event bus or dispatcher in this package, so what happens with the drained array is entirely up to the consuming application.
+
+For an event with its own payload fields, `DomainEvent` (its own pillar, `@roastery/beans/domain-event`) is an optional abstract base that saves you from repeating the object literal at every call site. A subclass declares only `defineName()`; `occurredAt` is stamped automatically, and the constructor's only required argument is `aggregateId`:
+
+```typescript
+import { DomainEvent } from "@roastery/beans/domain-event";
+import { Entity } from "@roastery/beans/entity";
+
+class OrderConfirmed extends DomainEvent {
+  public constructor(
+    aggregateId: string,
+    public readonly total: number,
+  ) {
+    super(aggregateId);
+  }
+
+  protected defineName(): string {
+    return "order.confirmed";
+  }
+}
+
+class Order extends Entity<typeof orderProperties> {
+  // ...
+
+  public confirm(): void {
+    this.set("status", "confirmed");
+    this.raiseEvent(new OrderConfirmed(this.id, this.total));
+  }
+}
+```
+
+`raiseEvent` still stamps `occurredAt`/`aggregateId` on the way into the buffer regardless of what the passed event already carries, so a `DomainEvent` instance and a plain `{ name, ...payload }` object work the same way there — `DomainEvent` is sugar, not a different contract.
+
+When an event carries no payload of its own — its constructor is exactly `DomainEvent`'s, taking only `aggregateId` — `raiseEvent` also accepts the **bare class reference**, no `new` required. It builds the instance itself, passing `this.id`:
+
+```typescript
+class OrderCancelled extends DomainEvent {
+  protected defineName(): string {
+    return "order.cancelled";
+  }
+}
+
+class Order extends Entity<typeof orderProperties> {
+  // ...
+
+  public cancel(): void {
+    this.set("status", "cancelled");
+    this.raiseEvent(OrderCancelled); // no `new OrderCancelled(this.id)` needed
+  }
+}
+```
+
+This only works for a constructor shaped `new (aggregateId: string) => …` — `OrderConfirmed` above, whose constructor also takes `total`, is not assignable to that shape, so TypeScript rejects `this.raiseEvent(OrderConfirmed)` at compile time and routes you back to `this.raiseEvent(new OrderConfirmed(this.id, this.total))`.
 
 ---
 
@@ -390,14 +466,14 @@ SchemaManager.match(EmailSchema, "invalid");          // false
 ## Exports reference
 
 ```typescript
-// Top-level pillars
-import { Entity, ValueObject } from "@roastery/beans";
+// Root barrel: the two base classes, plus blueprint and DomainEvent alongside them
+import { blueprint, DomainEvent, Entity, ValueObject } from "@roastery/beans";
 
 // Symbols keying the bases' internal slots — from terroir, not from beans
 import { Context, Demo, Meta, Properties, Source, Storage } from "@roastery/terroir/symbols";
 
 // Entity subpaths
-import { blueprint, deepEquals, generateUUID } from "@roastery/beans/entity/helpers";
+import { deepEquals, generateUUID } from "@roastery/beans/entity/helpers";
 import type {
   AccessorsOf,
   EntityDefinition,
@@ -410,6 +486,9 @@ import type {
   RulesOf,
   SerializedEntity,
 } from "@roastery/beans/entity/types";
+
+// DomainEvent subpaths — DomainEvent itself is also at the root barrel above
+import type { IDomainEvent } from "@roastery/beans/domain-event/types";
 
 // ValueObject subpaths
 import { metaOf } from "@roastery/beans/value-object/helpers";

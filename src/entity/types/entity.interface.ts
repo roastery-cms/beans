@@ -1,3 +1,4 @@
+import type { IDomainEvent } from "@/domain-event/types";
 import type { Context, Properties, Source } from "@roastery/terroir/symbols";
 import type { ContextOf } from "./context-of.type";
 import type { EntitySchemaOf } from "./entity-schema-of.type";
@@ -20,6 +21,7 @@ import type { SerializedEntity } from "./serialized-entity.type";
  * @typeParam PropertiesShape - The entity's blueprint shape. Defaults to
  *   {@link PropertiesShapeBase} so the interface can be used unparameterised.
  *
+ * @see {@link IDomainEvent} — the shape `pullDomainEvents()` drains.
  * @see {@link IRawEntity} — the serialized identity fields.
  * @see {@link SerializedEntity} — what `toJSON()` returns.
  */
@@ -66,4 +68,7 @@ export interface IEntity<
 	get<Key extends ReadableKey<PropertiesShape>>(
 		key: Key,
 	): ReadValueOf<PropertiesShape, Key>;
+
+	/** Drains the buffered domain events raised via `raiseEvent`, emptying the buffer. */
+	pullDomainEvents(): readonly IDomainEvent[];
 }

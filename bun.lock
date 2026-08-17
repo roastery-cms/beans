@@ -5,7 +5,7 @@
     "": {
       "name": "@roastery/beans",
       "dependencies": {
-        "@roastery/terroir": "^0.2.0",
+        "@roastery/terroir": "^0.2.1",
         "slugify": "^1.6.6",
       },
       "devDependencies": {
@@ -176,7 +176,7 @@
 
     "@oxc-resolver/binding-win32-x64-msvc": ["@oxc-resolver/binding-win32-x64-msvc@11.24.2", "", { "os": "win32", "cpu": "x64" }, "sha512-UqGPmo56KDfLlfXFAFIrNflHT8tFxWGEivWg3Zeyp4Uy2NlKN1FGPr6/BxcLGG3+kZ6Wp14g5Uj+n71boqZfiw=="],
 
-    "@roastery/terroir": ["@roastery/terroir@0.2.0", "", { "dependencies": { "@sinclair/typebox": ">= 0.34.0 < 1", "uuid": "^13.0.0" }, "peerDependencies": { "@types/bun": "latest", "tsup": "^8.5.1", "typescript": "^5" } }, "sha512-RrPV5rPotfUwh0d1HskiyU16FxxNEIBOCmyVRfWUB3OlKC6o3moNZqL5wj28MBJZ3F3nyVg3toKVHqAMqbut1w=="],
+    "@roastery/terroir": ["@roastery/terroir@0.2.1", "", { "dependencies": { "@sinclair/typebox": ">= 0.34.0 < 1", "uuid": "^13.0.0" }, "peerDependencies": { "@types/bun": "latest", "tsup": "^8.5.1", "typescript": "^5" } }, "sha512-fHv/+au5+JAHHZ+KaeyrXL0Nz5hQBDAEgxWoioccqJ9Jnc+TOQ4TD2Ukiip0MG3KVcSBAEBMgD1+58Z97C5dGw=="],
 
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.62.4", "", { "os": "android", "cpu": "arm" }, "sha512-RrPokAb7dmbxFoeO3TloqHyOjgye8RkBhSqmp4aJMIex4c9r46ZstPnleDQOq1t46VOVjwIuwNogIqbodV1Vvg=="],
 

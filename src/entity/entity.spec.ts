@@ -1,5 +1,6 @@
 import { SlugSchema } from "@/collections/schemas";
 import { StringVO, SlugVO } from "@/collections/value-objects";
+import { DomainEvent } from "@/domain-event";
 import { Entity } from "@/entity";
 import type {
 	AccessorsOf,
@@ -22,6 +23,27 @@ import {
 import { Storage } from "@roastery/terroir/symbols";
 import { describe, expect, it } from "bun:test";
 
+/** Evento sem payload próprio — construtor herdado de `DomainEvent`, só `aggregateId`. */
+class BeanPlanted extends DomainEvent {
+	protected defineName(): string {
+		return "bean.planted";
+	}
+}
+
+/** Evento com payload próprio — construtor exige mais que `aggregateId`. */
+class BeanWatered extends DomainEvent {
+	public constructor(
+		aggregateId: string,
+		public readonly amount: number,
+	) {
+		super(aggregateId);
+	}
+
+	protected defineName(): string {
+		return "bean.watered";
+	}
+}
+
 const beanProperties = {
 	name: StringVO,
 	slug: SlugVO,
@@ -43,6 +65,28 @@ class Bean extends Entity<typeof beanProperties> {
 	public recall(key: string): string | null {
 		return this[Storage].get(key);
 	}
+
+	/** Fachada pública para `raiseEvent`, que é protegido. */
+	public announce(name: string, payload: Record<string, unknown> = {}): void {
+		this.raiseEvent({ name, ...payload });
+	}
+
+	/** Fachada pública para `raiseEvent` recebendo uma referência de classe, sem `new`. */
+	public plant(): void {
+		this.raiseEvent(BeanPlanted);
+	}
+
+	/** Fachada pública para `raiseEvent` recebendo uma instância, quando há payload próprio. */
+	public water(amount: number): void {
+		this.raiseEvent(new BeanWatered(this.id, amount));
+	}
+
+	/** Fachada só para provar, em tempo de compilação, que um evento com payload próprio não satisfaz a sobrecarga de classe pura. */
+	public waterWithoutAmount(): void {
+		// @ts-expect-error — BeanWatered's constructor also requires `amount`;
+		// only a payload-less DomainEvent subclass satisfies the bare-class overload.
+		this.raiseEvent(BeanWatered);
+	}
 }
 
 const authorProperties = {
@@ -54,6 +98,11 @@ interface Author extends AccessorsOf<typeof authorProperties> {}
 class Author extends Entity<typeof authorProperties> {
 	protected defineEntity(): EntityDefinition<typeof authorProperties> {
 		return { properties: authorProperties, source: "author" };
+	}
+
+	/** Fachada pública para `raiseEvent`, que é protegido. */
+	public announce(name: string): void {
+		this.raiseEvent({ name });
 	}
 }
 
@@ -947,6 +996,163 @@ describe("Entity", () => {
 
 			expect(bean.name).toBe("alan");
 			expect(bean.recall("name")).toBe("não é o campo name");
+		});
+	});
+
+	describe("domain events", () => {
+		it("keeps raised events off the serialized form", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted", { name: "não é o campo name" });
+
+			expect(bean.toJSON()).toEqual({
+				id: bean.id,
+				createdAt: bean.createdAt,
+				name: "alan",
+				slug: "hello-world",
+			});
+			expect(Object.keys(bean.schema.properties)).not.toContain("events");
+		});
+
+		it("gives each instance its own buffer", () => {
+			const first = makeBean();
+			const second = makeBean();
+
+			first.announce("bean.planted");
+
+			expect(second.pullDomainEvents()).toEqual([]);
+		});
+
+		it("survives an unrelated mutation", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted");
+			bean.set("name", "hoyasumii");
+			bean.setMany({ slug: "outro" });
+
+			expect(bean.pullDomainEvents()).toHaveLength(1);
+		});
+
+		it("does not stamp updatedAt", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted");
+
+			expect(bean.get("updatedAt")).toBeUndefined();
+		});
+
+		it("stamps aggregateId with the entity's own id", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted");
+
+			const [event] = bean.pullDomainEvents();
+
+			expect(event?.aggregateId).toBe(bean.id);
+		});
+
+		it("stamps a fresh occurredAt timestamp", () => {
+			const bean = makeBean();
+			const before = Date.now();
+
+			bean.announce("bean.planted");
+
+			const [event] = bean.pullDomainEvents();
+			const occurredAt = new Date(event?.occurredAt ?? "").getTime();
+
+			expect(occurredAt).toBeGreaterThanOrEqual(before);
+			expect(occurredAt).toBeLessThanOrEqual(Date.now());
+		});
+
+		it("keeps the extra payload the caller attached", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted", { seeds: 3 });
+
+			const [event] = bean.pullDomainEvents();
+
+			expect(event).toMatchObject({ name: "bean.planted", seeds: 3 });
+		});
+
+		it("instantiates a bare class reference, using the entity's own id", () => {
+			const bean = makeBean();
+
+			bean.plant();
+
+			const [event] = bean.pullDomainEvents();
+
+			expect(event).toMatchObject({
+				name: "bean.planted",
+				aggregateId: bean.id,
+			});
+		});
+
+		it("still accepts an already-built instance for an event with its own payload", () => {
+			const bean = makeBean();
+
+			bean.water(50);
+
+			const [event] = bean.pullDomainEvents();
+
+			expect(event).toMatchObject({
+				name: "bean.watered",
+				aggregateId: bean.id,
+				amount: 50,
+			});
+		});
+
+		it("refuses a class reference whose constructor needs more than aggregateId, at compile time", () => {
+			const bean = makeBean();
+
+			bean.waterWithoutAmount();
+
+			const [event] = bean.pullDomainEvents();
+
+			expect(event?.name).toBe("bean.watered");
+			expect(
+				(event as { amount?: number } | undefined)?.amount,
+			).toBeUndefined();
+		});
+
+		it("returns events in the order they were raised", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted");
+			bean.announce("bean.watered");
+
+			expect(bean.pullDomainEvents().map((event) => event.name)).toEqual([
+				"bean.planted",
+				"bean.watered",
+			]);
+		});
+
+		it("drains the buffer — a second pull returns nothing", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted");
+			bean.pullDomainEvents();
+
+			expect(bean.pullDomainEvents()).toEqual([]);
+		});
+
+		it("starts empty on an instance built by fromJSON", () => {
+			const bean = makeBean();
+
+			bean.announce("bean.planted");
+
+			expect(Bean.fromJSON(bean.toJSON()).pullDomainEvents()).toEqual([]);
+		});
+
+		it("starts empty on an instance built by demo", () => {
+			expect(Bean.demo().pullDomainEvents()).toEqual([]);
+		});
+
+		it("does not surface an event raised by a nested entity", () => {
+			const post = makePost();
+
+			post.get("author").announce("author.followed");
+
+			expect(post.pullDomainEvents()).toEqual([]);
 		});
 	});
 
