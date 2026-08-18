@@ -3,45 +3,44 @@
  *
  * `@roastery/beans` — DDD building blocks for the Roastery CMS ecosystem.
  *
- * The package exposes these import surfaces; pick the one that matches the
- * layer you are working at:
+ * The package is split in two layers, each importable on its own:
  *
- * - `"@roastery/beans"` (this barrel) — {@link Entity}, {@link ValueObject},
- *   {@link blueprint} and {@link DomainEvent}: the two base classes plus the
- *   two things most subclasses declare right alongside them. Almost every
- *   consumer starts here.
- * - `"@roastery/beans/entity"` — the entity pillar ({@link Entity} and
- *   {@link blueprint}). Subpaths: `/entity/helpers` (`blueprint`'s original
- *   home, plus `deepEquals`, `generateUUID`) and `/entity/types` (`IEntity`,
- *   `IRawEntity`, `AccessorsOf`, …).
- * - `"@roastery/beans/domain-event"` — the optional abstract `DomainEvent`
- *   base for events raised through `Entity.raiseEvent`. Subpath:
- *   `/domain-event/types` (`IDomainEvent`, the contract it implements).
- * - `"@roastery/beans/value-object"` — the abstract {@link ValueObject} base.
- *   Subpaths: `/value-object/helpers` (`metaOf`) and `/value-object/types`
- *   (`IValueObjectContext`, `IValueObjectMetadata`).
- * - `"@roastery/beans/collections/schemas"` and `"…/collections/value-objects"`
- *   — ready-to-use TypeBox schemas and Value Objects for the most common
- *   scalar/array shapes.
+ * - `"@roastery/beans/domain"` — {@link Entity}, {@link ValueObject},
+ *   {@link blueprint} and {@link DomainEvent}: the domain layer's building
+ *   blocks. Subpaths go one level deeper (`/domain/entity`,
+ *   `/domain/value-object`, `/domain/domain-event`, `/domain/collections/*`).
+ * - `"@roastery/beans/application"` — {@link Command}: the application
+ *   layer's building block, orchestrating domain behavior behind a
+ *   validated, schema-driven input. Subpaths: `/application/command`,
+ *   `/application/collections/*` (an alias onto the domain catalog, so a
+ *   Command's blueprint never has to reach across layers).
  *
- * The symbols keying the bases' internal slots (`Context`, `Demo`, `Meta`,
- * `Properties`, `Source`, `Storage`) are **not** declared here — they come from
- * `"@roastery/terroir/symbols"`, the ecosystem's single declaration site.
- * Symbol equality is by reference, so a local redeclaration would read the
- * wrong slot and silently return `undefined`.
+ * This root barrel stays narrow on purpose: the base classes plus
+ * `blueprint`, the one thing most subclasses declare right alongside them
+ * — everything else (types, helpers, collections) lives behind a subpath.
  *
- * The root barrel stays narrow on purpose: the two base classes plus
- * `blueprint` and `DomainEvent`, the two things most subclasses need right
- * alongside them — everything else (types, the rest of `entity/helpers`,
- * collections) lives behind a subpath.
+ * The symbols keying the bases' internal slots (`Context`, `Demo`, `Events`,
+ * `Meta`, `Properties`, `Rules`, `Source`, `Storage`) are **not** declared
+ * here — they come from `"@roastery/terroir/symbols"`, the ecosystem's
+ * single declaration site. Symbol equality is by reference, so a local
+ * redeclaration would read the wrong slot and silently return `undefined`.
  *
  * Re-exports:
  * - {@link blueprint} — declares a blueprint carrying domain rules (`default` / `derive`).
+ * - {@link Command} — abstract, blueprint-driven base for application-layer commands.
  * - {@link DomainEvent} — optional abstract base for writing domain-event classes.
  * - {@link Entity} — abstract, blueprint-driven base for domain entities.
  * - {@link ValueObject} — abstract, self-validating base for immutable domain values.
  */
 
-export { Entity, blueprint } from "./entity";
-export { ValueObject } from "./value-object";
-export { DomainEvent } from "./domain-event";
+export { blueprint, DomainEvent, Entity, ValueObject } from "./domain";
+export { Command } from "./application";
+export {
+	configureRedaction,
+	redactionConfig,
+} from "./shared/redaction/redaction-config";
+export type {
+	IRedactionConfig,
+	RedactionPlaceholder,
+	RedactionPlaceholderFn,
+} from "./shared/redaction/redaction-config";

@@ -1,7 +1,7 @@
 {
 	"name": "@roastery/beans",
-	"description": "DDD building blocks for the Roastery CMS ecosystem — blueprint-driven Entities and self-validating Value Objects (including optional, nullable, and enum variants), backed by TypeBox schemas.",
-	"version": "0.3.0",
+	"description": "Blueprint-driven DDD building blocks: declare the model once as a plain object and derive validated construction, the TypeBox schema, serialization, typed accessors and coherent fixtures.",
+	"version": "0.4.0",
 	"type": "module",
 	"author": {
 		"name": "Alan Reis",
@@ -27,7 +27,14 @@
 		"entity",
 		"value-object",
 		"schema",
-		"validation"
+		"validation",
+		"domain-driven-design",
+		"blueprint",
+		"aggregate",
+		"domain-events",
+		"command",
+		"fixtures",
+		"clean-architecture"
 	],
 	"main": "./dist/index.cjs",
 	"module": "./dist/index.js",
@@ -58,6 +65,7 @@
 		"build": "biome check --fix && knip && tsup 'src/**/index.ts' --format cjs,esm --dts --tsconfig tsconfig.build.json --clean",
 		"test:unit": "bun test --env-file=.env.testing",
 		"test:coverage": "bun test --env-file=.env.testing --coverage",
+		"example": "bun run examples/user-flow.ts",
 		"setup": "bun run build && bun link",
 		"prepare": "husky || true",
 		"knip": "knip"

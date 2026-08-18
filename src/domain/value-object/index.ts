@@ -1,0 +1,14 @@
+/**
+ * @module @roastery/beans/domain/value-object
+ *
+ * Public entry point for the value-object pillar.
+ *
+ * Re-exports:
+ * - {@link ValueObject} — abstract base class for immutable, schema-validated wrappers.
+ *
+ * The {@link IValueObjectContext} interface lives one level deeper at
+ * `@roastery/beans/domain/value-object/types` and is **not** re-exported here, mirroring how
+ * the package keeps types behind a dedicated `/types` subpath.
+ */
+
+export { ValueObject } from "./value-object";
