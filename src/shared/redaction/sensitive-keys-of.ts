@@ -1,4 +1,5 @@
 import { metaOf } from "@/domain/value-object/helpers";
+import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
 import type { RedactionPlaceholder } from "./redaction-config";
 
 /**
@@ -54,23 +55,4 @@ export function sensitiveKeysOf(
 	cache.set(properties, sensitive);
 
 	return sensitive;
-}
-
-/**
- * Whether a blueprint value is a `ValueObject` class rather than a nested
- * `Entity` one — decided structurally, by the `defineMeta` every value-object
- * declares and no entity does, so this helper needs no import from either
- * pillar's base class.
- *
- * @param candidate - A blueprint property class.
- * @returns `true` when the class carries a `defineMeta` on its prototype.
- */
-function isValueObjectClass(
-	candidate: unknown,
-): candidate is Parameters<typeof metaOf>[0] {
-	return (
-		typeof candidate === "function" &&
-		typeof (candidate.prototype as { defineMeta?: unknown } | undefined)
-			?.defineMeta === "function"
-	);
 }

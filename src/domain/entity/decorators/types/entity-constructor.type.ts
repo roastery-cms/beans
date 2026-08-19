@@ -1,11 +1,19 @@
 import type { Source } from "@roastery/terroir/symbols";
 
 /**
- * The subset of `Entity`'s instance shape every lifecycle decorator actually
- * touches: the `source` used as validation context, `isDestroyed` (which
- * `onDelete` reads before delegating), and the two public mutators they wrap
- * — `setMany`, whose `boolean` return is the signal `onUpdate` reads to tell
- * a real mutation from a no-op, and `destroy`.
+ * The subset of `Entity`'s instance shape `onCreate`/`onDelete` actually
+ * touch: the `source` used as validation context, `isDestroyed` (which
+ * `onDelete` reads before delegating) and `destroy` itself.
+ *
+ * Deliberately excludes `setMany`, even though `onUpdate` also builds its
+ * wrapper on this same `EntityConstructor`/`EntityLike` pair: `setMany` is
+ * `protected` on `Entity`, and a structural type/interface has no way to
+ * express "protected" — declaring it here as a plain member would make
+ * every concrete `Entity` subclass fail this bound (`Property 'setMany' is
+ * protected in type 'X' but public in type 'EntityLike'`), breaking
+ * `onCreate`/`onDelete` for classes that never even touch `setMany`.
+ * `onUpdate` instead reaches it through a local cast, scoped to its own
+ * file — see `on-update.decorator.ts`.
  *
  * Deliberately **not** `Entity<PropertiesShapeBase>` itself: that generic
  * instance type's `toJSON()`/`get()` return types are shape-dependent in a
@@ -17,10 +25,9 @@ import type { Source } from "@roastery/terroir/symbols";
  * subclass fail to type-check against its own concrete blueprint. This
  * narrower, blueprint-independent slice sidesteps that entirely.
  */
-type EntityLike = {
+export type EntityLike = {
 	readonly [Source]: string;
 	readonly isDestroyed: boolean;
-	setMany(values: Record<string, unknown>): boolean;
 	destroy(): void;
 };
 

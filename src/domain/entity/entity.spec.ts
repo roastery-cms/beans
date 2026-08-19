@@ -1,5 +1,6 @@
 import { SlugSchema } from "@/domain/collections/schemas";
 import { StringVO, SlugVO } from "@/domain/collections/value-objects";
+import { customStringVO } from "@/domain/collections/value-objects/custom";
 import { NullableDateTimeVO } from "@/domain/collections/value-objects/nullable";
 import { OptionalStringVO } from "@/domain/collections/value-objects/optional";
 import { DomainEvent } from "@/domain/domain-event";
@@ -11,6 +12,8 @@ import type {
 	RawContextOf,
 	SerializedEntity,
 } from "@/domain/entity/types";
+import type { InputValueOf } from "@/domain/entity/types/input-value-of.type";
+import type { InputValuesOf } from "@/domain/entity/types/input-values-of.type";
 import { ValueObject } from "@/domain/value-object";
 import type { IValueObjectMetadata } from "@/domain/value-object/types";
 import {
@@ -56,6 +59,20 @@ interface Bean extends AccessorsOf<typeof beanProperties> {}
 class Bean extends Entity<typeof beanProperties> {
 	protected defineEntity(): EntityDefinition<typeof beanProperties> {
 		return { properties: beanProperties, source: "bean" };
+	}
+
+	/** Widens `set`/`setMany` back to public — this fixture's tests exercise the mutation primitive itself, from outside the class. */
+	public override set<Key extends keyof typeof beanProperties>(
+		key: Key,
+		value: InputValueOf<(typeof beanProperties)[Key]>,
+	): boolean {
+		return super.set(key, value);
+	}
+
+	public override setMany(
+		values: Partial<InputValuesOf<typeof beanProperties>>,
+	): boolean {
+		return super.setMany(values);
 	}
 
 	/** Public facade for `[Storage]`, which is protected. */
@@ -123,6 +140,14 @@ class Post extends Entity<typeof postProperties> {
 	/** Public facade for `raiseEvent`, which is protected. */
 	public announce(name: string): void {
 		this.raiseEvent({ name });
+	}
+
+	/** Widens `set` back to public — this fixture's tests exercise nested-entity mutation from outside the class. */
+	public override set<Key extends keyof typeof postProperties>(
+		key: Key,
+		value: InputValueOf<(typeof postProperties)[Key]>,
+	): boolean {
+		return super.set(key, value);
 	}
 }
 
@@ -1436,6 +1461,85 @@ describe("Entity", () => {
 			expect(() =>
 				Note.fromJSON(incomplete as SerializedEntity<typeof noteProperties>),
 			).toThrow(InvalidDomainDataException);
+		});
+	});
+	describe("isUnique", () => {
+		/** Declares uniqueness on the class, so every blueprint using it inherits the fact. */
+		const BadgeCodeVO = customStringVO({ name: "BadgeCodeVO", unique: true });
+
+		const staffProperties = {
+			code: BadgeCodeVO,
+			handle: SlugVO,
+			name: StringVO,
+		};
+
+		class Staff extends Entity<typeof staffProperties> {
+			protected defineEntity(): EntityDefinition<typeof staffProperties> {
+				return {
+					properties: staffProperties,
+					source: "staff",
+					unique: ["handle"],
+				};
+			}
+		}
+
+		const newStaff = (): Staff =>
+			new Staff({ code: "A-1", handle: "alan", name: "Alan" });
+
+		it("reports a key its value-object declared unique", () => {
+			expect(newStaff().isUnique("code")).toBe(true);
+		});
+
+		it("reports a key the definition named unique", () => {
+			expect(newStaff().isUnique("handle")).toBe(true);
+		});
+
+		it("reports false for a key neither source named", () => {
+			expect(newStaff().isUnique("name")).toBe(false);
+		});
+
+		it("always reports id, even where nothing was declared unique", () => {
+			const plainProperties = { name: StringVO };
+
+			class Plain extends Entity<typeof plainProperties> {
+				protected defineEntity(): EntityDefinition<typeof plainProperties> {
+					return { properties: plainProperties, source: "plain" };
+				}
+			}
+
+			expect(new Plain({ name: "n" }).isUnique("id")).toBe(true);
+		});
+
+		it("reports false for the timestamps, which repeat freely", () => {
+			const staff = newStaff();
+
+			expect(staff.isUnique("createdAt")).toBe(false);
+			expect(staff.isUnique("updatedAt")).toBe(false);
+		});
+
+		it("throws for a key outside the blueprint, rather than answering false", () => {
+			// A typo answering `false` would read as "not unique" — the silent
+			// failure `get`'s identical guard exists to prevent.
+			const read = () =>
+				(newStaff() as unknown as { isUnique(key: string): boolean }).isUnique(
+					"nope",
+				);
+
+			expect(read).toThrow(InvalidPropertyException);
+		});
+
+		/**
+		 * The contract in one assertion: the method reports the *declaration*,
+		 * never the stored data. Only a repository can answer "is this value
+		 * taken", because only it sees the set of rows.
+		 */
+		it("does not stop two entities from carrying the same unique value", () => {
+			const first = newStaff();
+			const second = newStaff();
+
+			expect(first.isUnique("code")).toBe(true);
+			expect(first.get("code")).toBe(second.get("code"));
+			expect(first.id).not.toBe(second.id);
 		});
 	});
 });

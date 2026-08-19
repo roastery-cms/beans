@@ -29,6 +29,18 @@ class Author extends entityOf(authorProperties, "author") {
 	public cached(): string | null {
 		return this[Storage].get("cached");
 	}
+
+	/**
+	 * Widens `set` back to public — "mutates and serializes like any other
+	 * entity" below exercises it directly, from outside the class. Loosely
+	 * typed on purpose: `authorProperties` carries a `Rules` slot, and a
+	 * precisely generic override (`Key extends keyof typeof authorProperties`)
+	 * can't stay well-formed against `InputValueOf`'s `AnyPropertyClass`
+	 * constraint once `Key` ranges over that slot too.
+	 */
+	public override set(key: string | symbol, value: unknown): boolean {
+		return super.set(key as never, value as never);
+	}
 }
 
 const author = (): Author => new Author({ name: "Alan Reis" });

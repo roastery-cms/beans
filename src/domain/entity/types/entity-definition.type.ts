@@ -35,4 +35,25 @@ export type EntityDefinition<PropertiesShape extends PropertiesShapeBase> = {
 	 * the redacted object itself.
 	 */
 	sensitive?: readonly DomainKeys<PropertiesShape>[];
+
+	/**
+	 * Extra blueprint keys this entity treats as unique, beyond the ones whose
+	 * value-object already declares `unique: true` in its `defineMeta`.
+	 *
+	 * For the case the type alone does not settle — a `SlugVO` is unique per
+	 * post but not as a kind of value. `id` is **not** listed here and cannot
+	 * be: identity is the primary key, so it is always unique, and
+	 * `DomainKeys` excludes it from this list precisely so the obvious never
+	 * has to be declared.
+	 *
+	 * Declarative only. Nothing in the domain layer enforces it, because
+	 * uniqueness is a property of the set of stored rows — the repository
+	 * adapter reads it back through `uniqueKeysOf(EntityClass)` or
+	 * `entity.isUnique(key)` and honours it there.
+	 *
+	 * A key backed by a **nested entity** is honoured too, by comparing the
+	 * whole serialized sub-object — what a database would do with a JSON column
+	 * under a unique index.
+	 */
+	unique?: readonly DomainKeys<PropertiesShape>[];
 };

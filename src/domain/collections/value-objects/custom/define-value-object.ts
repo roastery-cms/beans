@@ -64,6 +64,7 @@ export function defineValueObject<ValueType, SchemaType extends t.TSchema>({
 	schema,
 	sensitive,
 	transform,
+	unique,
 	validate,
 }: IDefineValueObjectArgs<ValueType, SchemaType>): ValueObjectClassOf<
 	ValueType,
@@ -77,6 +78,7 @@ export function defineValueObject<ValueType, SchemaType extends t.TSchema>({
 		redactWith,
 		schema,
 		sensitive,
+		unique,
 	};
 
 	if (typeof fallback !== "function" && !SchemaManager.match(schema, fallback))

@@ -115,7 +115,7 @@ Input validation failures are re-tagged at the command's boundary — `Unprocess
 It stops where the opinions start, on purpose:
 
 - **No `Result`/`Either`.** Invalid data throws a specific, typed exception (`InvalidPropertyException`, `ImmutablePropertyException`, `IncompleteIdentityException`, …), each carrying the property and the source.
-- **No repository, no Unit of Work, no ORM integration.** `toJSON`/`fromJSON` are the persistence boundary; what sits on the other side is yours.
+- **No *production* repository, no Unit of Work, no ORM integration.** The `repository` pillar ships the *contract* and nothing else: `RepositoryOf` and the `ICan*` capability types are 100% type-only — no factory, no symbol, no runtime, not one byte emitted. `toJSON`/`fromJSON` are still the persistence boundary, and the adapter on the other side is still yours to write. The one implementation that does ship is `inMemoryRepositoryOf`, and it lives behind `@roastery/beans/testing` precisely so it can't be mistaken for one.
 - **No DI container.** `commandRegistry` only gates access to a fixed, once-supplied dependency record at compile time — it doesn't resolve, construct, or scope dependencies for you.
 - **No event bus and no dispatcher.** `raiseEvent` buffers, `pullDomainEvents` drains, `collectDomainEvents` hands the array to a `Command`'s caller. Publishing is the application's call.
 - **No query side.** `Command` is the write path only.
@@ -126,8 +126,10 @@ It stops where the opinions start, on purpose:
 - **ValueObject** *(domain)* — Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()`; validation runs in the constructor.
 - **DomainEvent** *(domain)* — Optional abstract base for the events an `Entity` raises, plus `defineDomainEvent(name)` (a factory building a payload-less event class from just its name), three TC39 lifecycle decorators (`onCreate`, `onUpdate`, `onDelete`) that raise them automatically at a fixed point, and three TC39 method decorators (`beforeHandle`, `afterHandle`, `onError`) that raise them around an arbitrary instance method — the first two immediately before/after, `onError` when it throws.
 - **Collections** *(domain, aliased under application)* — The Value Object / schema catalog and the custom factories described above.
-- **Command** *(application)* — Blueprint-driven base for orchestrating domain behaviour behind a validated input, resolving to a `CommandResult` (`{ result, events }`).
-- **CommandRegistry** *(application)* — Two-phase builder (`commandRegistry(spec).withDependencies(deps)`) that gates access to a set of `Command` subclasses by their declared dependencies, entirely at compile time, and hands back a ready-to-run bound function per command via `get()`.
+- **Command** *(application)* — Blueprint-driven base for orchestrating domain behaviour behind a validated input, resolving to a `CommandResult` (`{ result, events }`). **AggregateCommand** specializes it for a single-aggregate result: `execute()` comes already implemented, the subclass writes `handle()` instead.
+- **Repository** *(domain)* — Type-only ports derived from an entity's blueprint: `RepositoryOf<typeof User, Spec>` builds the contract an adapter implements, out of granular `ICan*` capabilities a use case asks for in its `Deps`. `findByEmail` exists only because the entity declares `email`. **inMemoryRepositoryOf** *(testing)* generates a working double for that same contract, from the same blueprint.
+- **CommandRegistry** *(application)* — Two-phase builder (`commandRegistry(spec).withDependencies(deps)`) that gates access to a set of `Command` subclasses by their declared dependencies, entirely at compile time, and hands back a ready-to-run bound function per command via `get()`. **EventedRegistry** is the same builder, gaining event publishing and reactions (`.on(eventClass, handlerClass)`).
+- **The Roastery Way** *(`@roastery/beans/way`, spans both layers)* — One import path for the low-ceremony subset above: `entityOf`, the value-object catalog, `defineDomainEvent`, `defineUseCase`, `defineEventHandler`, `eventedRegistry`. Re-exports only — nothing new is implemented.
 
 ## Technologies
 
@@ -173,6 +175,67 @@ bun link @roastery/beans
 
 ---
 
+## The Roastery Way
+
+`@roastery/beans/way` is one import path for the low-ceremony subset of `beans` — everything needed to model a domain, raise and react to events, and expose behaviour as a use case, without `class X extends Entity/Command/ValueObject`, a `defineEntity`/`defineCommand`/`defineMeta` override, an `interface X extends AccessorsOf<…> {}` merge, or a terroir symbol in sight:
+
+```typescript
+import {
+  blueprint, entityOf,
+  defineDomainEvent, defineUseCase,
+  defineEventHandler, eventedRegistry,
+} from "@roastery/beans/way";
+import { StringVO } from "@roastery/beans/way/collections/value-objects";
+
+// Domain
+const BeanPlanted = defineDomainEvent("bean.planted");
+
+const beanProperties = blueprint({ name: StringVO }).done();
+class Bean extends entityOf(beanProperties, "bean") {
+  plant() { this.raiseEvent(BeanPlanted); }
+}
+
+// Use case
+class PlantBean extends defineUseCase<typeof plantBeanProperties, Deps, Bean>(plantBeanProperties, "plant-bean") {
+  protected async handle({ beans }: Deps): Promise<Bean> {
+    const bean = new Bean({ name: this.name });
+    bean.plant();
+    await beans.save(bean);
+    return bean;
+  }
+}
+
+// Reaction — pass the event's class directly, no InstanceType<...> needed
+const LogBeanPlanted = defineEventHandler<typeof BeanPlanted, Deps>(async (event, deps) => {
+  deps.logger.log(event.name);
+});
+
+// Orchestration — registers the use case, publishes what it raises, runs the reaction
+const registry = eventedRegistry({ plantBean: PlantBean }, emitter)
+  .withDependencies({ beans, logger })
+  .on(BeanPlanted, LogBeanPlanted);
+
+const { result } = await registry.get("plantBean")({ name: "Arabica" });
+```
+
+**This is not a third layer.** `domain` and `application` are still the only two layers `beans` has — every name `@roastery/beans/way` (and its `/collections/*` subpath) exports is re-exported verbatim from its original home in one of them; nothing is reimplemented, and the barrel has no behaviour of its own. It's a curated cross-cutting index, picking only the entries whose whole design goal was already minimizing ceremony:
+
+| Concern | From `@roastery/beans/way` | The precise form underneath |
+|---|---|---|
+| Declare properties + rules | `blueprint` | (same — always used either way) |
+| Model an entity | `entityOf` | `class X extends Entity<Shape>` + `defineEntity()` + interface merge |
+| A value | `@roastery/beans/way/collections/value-objects` (`StringVO`, `EmailVO`, `UuidVO`, …) + its `optional`/`nullable`/`custom` subpaths | same classes, same subpath either way |
+| A domain event | `defineDomainEvent` | `class X extends DomainEvent` + `defineName()` |
+| A use case | `defineUseCase` | `AggregateCommand`/`aggregateCommandOf`/`Command` — reach here directly once a use case needs more than one aggregate as its result |
+| React to an event | `defineEventHandler` | `class X implements IEventHandler<Event, Deps>` |
+| Wire it all up | `eventedRegistry` | `commandRegistry` (no event publishing/reactions) |
+
+The value-object catalog lives one level deeper, at `@roastery/beans/way/collections/value-objects` (plus `/optional`, `/nullable`, `/custom`) rather than in the root of `way` itself — flattened into the same barrel as `blueprint`/`entityOf`/`defineUseCase`, its ~45 names would drown the half-dozen that actually shape how a feature is put together. Same split `domain`/`application` already draw for their own catalogs, one level down.
+
+Reach past this barrel, into the specific subpath named on the right, the moment a use case stops fitting this shape — its result isn't a single aggregate, or the behaviour touches more than one — or an entity's definition needs to be computed rather than stated. Every one of those escape hatches is documented in full under its own section below.
+
+---
+
 ## Entity
 
 Abstract base class that every domain entity extends, driven by a **blueprint**: a plain object mapping each domain property to its `ValueObject` or `Entity` class. The subclass declares only `defineEntity()` — no constructor, no hand-written schema, no getters.
@@ -193,6 +256,10 @@ class Post extends Entity<typeof postProperties> {
   protected defineEntity(): EntityDefinition<typeof postProperties> {
     return { properties: postProperties, source: "post" };
   }
+
+  rename(title: string) {
+    this.set("title", title); // set/setMany are protected — only reachable from here
+  }
 }
 ```
 
@@ -204,8 +271,7 @@ const post = new Post({ title: "Hello", slug: "Hello World" });
 post.title;                  // "Hello" — accessor derived from the blueprint
 post.slug;                   // "hello-world" — the VO's transform ran
 post.id;                     // UUID v7, generated by the base
-post.set("title", "Hi");     // validates, replaces, stamps updatedAt; → true if it changed
-post.setMany({ title: "Oi", slug: "oi" }); // atomic, one updatedAt stamp
+post.rename("Hi");           // validates, replaces, stamps updatedAt; → true if it changed
 post.toJSON();               // plain object
 Post.fromJSON(row);          // strict static hydration, identity preserved
 Post.demo();                 // fixture without data — every VO on its default
@@ -457,10 +523,14 @@ class User extends Entity<typeof userProperties> {
   protected defineEntity(): EntityDefinition<typeof userProperties> {
     return { properties: userProperties, source: "user" };
   }
+
+  rename(name: string) {
+    this.set("name", name); // set/setMany are protected — only reachable from here
+  }
 }
 
 const user = new User({ name: "Alan" }); // raises UserCreated
-user.set("name", "Alan Reis");           // raises UserUpdated (only because something changed)
+user.rename("Alan Reis");                // raises UserUpdated (only because something changed)
 user.destroy();                          // raises UserDeleted (only on the first call)
 
 User.fromJSON(row);                      // raises nothing — hydration is not a domain fact
@@ -770,6 +840,53 @@ Key rules:
 - **Validation failures surface as application-layer exceptions, not domain-layer ones.** A property that fails validation during construction (e.g. `new CreateUserCommand({ email: "not-an-email", ... })`) throws `UnprocessableContentException` (422) — not the `InvalidPropertyException` a `ValueObject` normally throws — because the input crossed the command's own boundary, not a domain invariant. The original `InvalidPropertyException` is preserved as `error.cause`. `fromJSON` rejecting a payload shaped wrong (missing/extra keys) throws `BadRequestException` (400) the same way. Both come from `@roastery/terroir/exceptions/application`, and both carry `[Layer] === "application"` (from `@roastery/terroir/symbols`) — so error-handling middleware can tell a command's own input validation apart from a deeper domain-layer failure. Definition-time mistakes (`defineCommand` as a class field, a colliding blueprint key) stay domain-layer, since they're not about request input at all.
 - **`@roastery/beans/application/collections/*`** mirrors every domain collections subpath (schemas, value-objects, and their `optional`/`nullable`/`custom` variants) — the exact same classes, re-exported so a command blueprint never has to import from `@roastery/beans/domain` directly.
 
+### AggregateCommand
+
+`CreateUserCommand` above ends its `execute()` with `return collectResult(user)` — the shape of nearly every command whose result is a single aggregate. `AggregateCommand` takes that line off the subclass entirely: `execute()` comes already implemented, and the subclass writes `handle()` instead, returning the aggregate on its own rather than the `CommandResult` envelope.
+
+```typescript
+import { AggregateCommand } from "@roastery/beans/application";
+
+class CreateUserCommand extends AggregateCommand<typeof createUserProperties, Deps, User> {
+  protected defineCommand(): CommandDefinition<typeof createUserProperties> {
+    return { properties: createUserProperties, source: "create-user" };
+  }
+
+  protected async handle({ secrets, users }: Deps): Promise<User> {
+    const passwordId = await secrets.hash(this.password);
+    const user = new User({ email: this.email, name: this.name, password: passwordId });
+    await users.save(user);
+    return user; // execute() wraps this into { result, events } for you
+  }
+}
+
+const { result: user, events } = await new CreateUserCommand({ ... }).execute({ secrets, users });
+```
+
+- **`handle()` is `protected`** — `execute()` stays the one public verb; how it builds `CommandResult` is no longer the subclass's concern.
+- **Same restriction `collectResult` already has: one aggregate.** `Result` must itself expose `pullDomainEvents` (any `Entity`). A command that needs `collectResult(result, ...rest)` — extra aggregates besides the result — or whose result isn't an aggregate at all (a `string`, `null`, …) still extends `Command` directly, implementing `execute()` as before.
+- **Everything else about `Command` is unchanged** — `defineCommand`, construction, `demo()`, `fromJSON()`, sensitive-key redaction, the application-layer exceptions on invalid input — `AggregateCommand` only replaces how `execute()`'s body gets written.
+
+**`aggregateCommandOf`** is `commandOf`'s counterpart for this case, stacking both boilerplate cuts: the blueprint binding `commandOf` already gives `Command`, plus `AggregateCommand`'s `handle()` instead of `execute()`. The subclass above shrinks to just the blueprint and `handle()`:
+
+```typescript
+import { aggregateCommandOf } from "@roastery/beans/application/command/helpers";
+
+class CreateUserCommand extends aggregateCommandOf<typeof createUserProperties, Deps, User>(
+  createUserProperties,
+  "create-user",
+) {
+  protected async handle({ secrets, users }: Deps): Promise<User> {
+    const passwordId = await secrets.hash(this.password); // typed accessor, no interface merge needed
+    const user = new User({ email: this.email, name: this.name, password: passwordId });
+    await users.save(user);
+    return user;
+  }
+}
+```
+
+**`defineUseCase`** is the exact same function under a friendlier name — no DDD vocabulary required to reach for it: `class CreateUser extends defineUseCase<...>(properties, source) { protected async handle(deps) { ... } }`.
+
 ---
 
 ## Command Registry
@@ -839,13 +956,27 @@ const { result } = await registry.get("confirmOrder")({ total: 100 });
 interface IEventEmitter {
   emit(event: IDomainEvent): void | Promise<void>;
 }
+```
 
-// Adapting Node's own EventEmitter is one line — no subscription logic needed,
-// since eventedRegistry never delegates .on() to the emitter (see below).
-class NodeEventEmitterAdapter implements IEventEmitter {
-  constructor(private readonly inner: NodeJS.EventEmitter) {}
-  emit(event: IDomainEvent): void {
-    this.inner.emit(event.name, event);
+Adapting a bus to it is one method, with no subscription logic — `eventedRegistry` never delegates `.on()` to the emitter (see below). For Node's own `EventEmitter` you don't even write that one: `NodeEventEmitterAdapter` ships, and its `inner` emitter is public, which is how you subscribe.
+
+```typescript
+import { NodeEventEmitterAdapter } from "@roastery/beans/testing";
+
+const emitter = new NodeEventEmitterAdapter(); // or pass a bus you already own
+
+emitter.inner.on("order.confirmed", (event) => console.log(event.aggregateId));
+
+const registry = eventedRegistry(spec, emitter).withDependencies(deps);
+```
+
+It lives under `testing` to keep `node:events` out of the two layers, not because it only works in tests — an app whose host *is* Node can publish through it in production. It also special-cases one name: Node **throws** `ERR_UNHANDLED_ERROR` when `"error"` is emitted with no listener, which would reject the `CommandResult` of a command that actually succeeded, so the adapter skips that call instead (with zero listeners an emit is already a no-op, so nothing is lost). Any other bus is still your own three lines:
+
+```typescript
+class KafkaEmitter implements IEventEmitter {
+  constructor(private readonly producer: Producer) {}
+  async emit(event: IDomainEvent): Promise<void> {
+    await this.producer.send({ topic: event.name, messages: [{ value: JSON.stringify(event) }] });
   }
 }
 ```
@@ -858,13 +989,19 @@ Key rules:
 - **A throwing handler is isolated** — it never breaks a sibling reaction on the same event, nor the `CommandResult` of the command that raised it. Failures surface through the optional `onError` hook (`eventedRegistry(spec, emitter, { onError })`); omit it and a failure still never crashes anything — it re-throws inside a microtask instead, visible as an unhandled exception through whatever the host runtime already does with those.
 - **Cycles are detected at runtime, not at compile time.** A reaction whose triggered command raises the same event again — directly, or through further reactions — throws `LoopDetectedException` (HTTP 508) instead of recursing until the call stack gives out, the same runtime guard `commandRegistry`'s own sibling composition now has (TypeScript still can't prove a fixpoint of arbitrary depth, so this is a runtime backstop, not a stronger compile-time gate). When the cycle closes on an *event* specifically, the failure is isolated exactly like any other reaction error — routed through `onError`/`defaultOnError`, never rejecting the `CommandResult` of the command that raised the event.
 - **`eventedRegistry` delegates command construction and execution entirely to `commandRegistry`** — reuse, not reimplementation. It builds a second, parallel `commands` bag on top, shared by `.get()` and every reaction's `deps.commands`.
-- **`IEventHandler<Event, Deps>`'s `Event` is an instance type, not a class reference** — easy to get backwards for a `defineDomainEvent`-generated event, since the only thing in scope to name is the generated class itself: `const BeanPlanted = defineDomainEvent(...)` gives you a value whose natural type reference, `typeof BeanPlanted`, is the **class** shape (`DomainEventClassOf`), not the event. `IEventHandler<typeof BeanPlanted, Deps>` fails with `TS2344: Type 'DomainEventClassOf' does not satisfy the constraint 'DomainEvent'` — reach for `IEventHandler<InstanceType<typeof BeanPlanted>, Deps>` instead. A hand-written `class OrderConfirmed extends DomainEvent { ... }` doesn't have this trap — the class name already **is** the instance type, so `IEventHandler<OrderConfirmed, Deps>` is correct as written.
+- **`IEventHandler<Event, Deps>`'s `Event` is an instance type, not a class reference** — easy to get backwards for a `defineDomainEvent`-generated event, since the only thing in scope to name is the generated class itself: `const BeanPlanted = defineDomainEvent(...)` gives you a value whose natural type reference, `typeof BeanPlanted`, is the **class** shape (`DomainEventClassOf`), not the event. `IEventHandler<typeof BeanPlanted, Deps>` fails with `TS2344: Type 'DomainEventClassOf' does not satisfy the constraint 'DomainEvent'` — reach for `IEventHandler<InstanceType<typeof BeanPlanted>, Deps>` instead. A hand-written `class OrderConfirmed extends DomainEvent { ... }` doesn't have this trap — the class name already **is** the instance type, so `IEventHandler<OrderConfirmed, Deps>` is correct as written. This trap is specific to implementing `IEventHandler` by hand; `defineEventHandler` below sidesteps it entirely.
 
-`eventedRegistry` also accepts a handler generated from just its `handle` function — `defineEventHandler(handle, name?)` builds the same class `implements IEventHandler<Event, Deps>` above, from one function:
+`eventedRegistry` also accepts a handler generated from just its `handle` function — `defineEventHandler(handle, name?)` builds the same class `implements IEventHandler<Event, Deps>` above, from one function. It has **two overloads**: pass the event's class directly (`typeof BeanPlanted`) and `defineEventHandler` computes `InstanceType<...>` for you — no `InstanceType<...>` boilerplate, and the trap above doesn't apply — or pass an already-known instance type (`OrderConfirmed`, or let it infer from `handle`'s own parameter annotation), exactly as before:
 
 ```typescript
 import { defineEventHandler, eventedRegistry } from "@roastery/beans/application/evented-registry";
 
+// Class reference — recommended for a defineDomainEvent-generated event
+const LogBeanPlanted = defineEventHandler<typeof BeanPlanted>(async (event) => {
+  console.log(`bean planted: ${event.aggregateId}`);
+});
+
+// Instance type — for a hand-written DomainEvent subclass
 const SendReceiptOnOrderConfirmed = defineEventHandler<OrderConfirmed, SendReceiptDeps>(
   async (event, deps) => {
     await deps.commands.sendReceipt({ orderId: event.aggregateId, total: event.total });
@@ -877,6 +1014,163 @@ const registry = eventedRegistry(spec, emitter)
 ```
 
 `name` is optional and purely cosmetic (stack traces, tooling) — unlike `defineDomainEvent`'s own `name` argument, nothing here is read at runtime; matching an event to its handler stays keyed off the *event* class's own name, resolved by `.on()` itself.
+
+`Deps` defaults to `unknown`, not `void` — omit it and `handle`'s second parameter both when a reaction reads nothing from its dependencies. `unknown` specifically, not `void`: `.on()`'s compile-time gate checks that what `eventedRegistry` actually has available *extends* what the handler declares it needs, and only `unknown` (the type everything extends) is satisfied unconditionally — `void` would reject every registration, since a real dependency record never extends `void`.
+
+---
+
+## Repository
+
+`beans` ships no repository *implementation* and never will — but the *contract* is derivable, and leaving it to be hand-written meant every consumer maintaining a port that agreed with the model only until someone forgot to update it. `RepositoryOf` builds that contract from the entity's own blueprint: `findByEmail` exists because `User` declares `email`, and takes a `string` because that key is an `EmailVO`. Rename the key and the method is gone at compile time.
+
+It's a domain pillar, but its example reads best from the application side — a use case's `Deps` is where the granular `ICan*` capabilities earn their keep, so that's where this starts:
+
+```typescript
+import { defineUseCase, entityOf } from "@roastery/beans/way";
+import { EmailVO, StringVO, UuidVO } from "@roastery/beans/way/collections/value-objects";
+import type {
+  ICanReadId,
+  ICanUpdate,
+  RepositoryOf,
+  RepositoryPage,
+} from "@roastery/beans/domain/repository/types";
+import { ResourceNotFoundException } from "@roastery/terroir/exceptions/application";
+
+const userProperties = { name: StringVO, email: EmailVO };
+class User extends entityOf(userProperties, "user") {
+  public rename(value: string): void {
+    this.set("name", value);
+  }
+}
+
+// What the adapter implements: one port, spec'd to what this app actually uses.
+type UserRepository = RepositoryOf<
+  typeof User,
+  "findById" | "findByEmail" | "findMany" | "create" | "update"
+>;
+
+class PrismaUserRepository implements UserRepository {
+  async findById(value: string): Promise<User | null> { /* … */ }
+  async findByEmail(value: string): Promise<User | null> { /* … */ }
+  async findMany(page: RepositoryPage): Promise<readonly User[]> { /* … */ }
+  async create(entity: User): Promise<void> { /* … */ }
+  async update(entity: User): Promise<void> { /* … */ }
+}
+
+// What the use case asks for: the two capabilities it uses, and nothing else.
+// A PrismaUserRepository satisfies this; so does an in-memory fake in a test.
+type RenameUserDeps = {
+  users: ICanReadId<typeof User> & ICanUpdate<typeof User>;
+};
+
+const renameProperties = { userId: UuidVO, name: StringVO };
+
+class RenameUser extends defineUseCase<typeof renameProperties, RenameUserDeps, User>(
+  renameProperties,
+  "rename-user",
+) {
+  protected async handle(deps: RenameUserDeps): Promise<User> {
+    const user = await deps.users.findById(this.userId);
+    if (!user) throw new ResourceNotFoundException("rename-user", this.userId);
+
+    user.rename(this.name);
+    await deps.users.update(user); // deps.users.delete(user) — does not compile
+
+    return user;
+  }
+}
+```
+
+The spec can also be written grouped, which resolves to the exact same type:
+
+```typescript
+type UserRepository = RepositoryOf<typeof User, {
+  read: ["findById", "findByEmail", "findMany"];
+  write: ["create", "update"];
+}>;
+```
+
+Key rules:
+
+- **Nothing here runs.** The pillar is types only — no factory, no symbol, no runtime, not one byte emitted. Everything below is resolved by the compiler and gone by the time the code executes.
+- **The catalog is derived from the blueprint, and only from it.** A value-object-backed key generates `findBy{Key}` and `findManyBy{Key}`; the three identity fields (`id`, `createdAt`, `updatedAt`) come along for free, which is why `findById` needs no special case. A key backed by a **nested entity** generates nothing — a repository filters by the `UuidVO` that *references* an aggregate, not by the aggregate itself.
+- **Only the flat spec form gets editor completions, and that's the compiler, not a choice.** Typing `RepositoryOf<typeof User, "` lists all 15 names and drops the ones already written; `read: ["` inside the grouped form lists nothing, because TypeScript offers string-literal suggestions only for a literal in a *direct* type-argument position. Both forms reject an unknown name with `TS2344` naming the offending literal, and hovering `RepositoryReadMethodsOf<typeof User>` expands the catalog when the editor won't.
+- **`ICan*` is what a use case asks for; `RepositoryOf` is what an adapter implements.** That asymmetry is the point of splitting them: `ICanReadId<typeof User> & ICanUpdate<typeof User>` in a `Deps` slot says exactly what the command is allowed to do, and the type system makes `delete` unavailable rather than merely discouraged.
+- **Every collection read is bounded.** `findMany` and `findManyBy*` take a required `RepositoryPage` (`{ page, perPage }`), so an unbounded `SELECT *` is not expressible through a generated port. `beans` declares no default page size — what a sane `perPage` is belongs to the application. `findManyByIds` is the exception, and takes no page: `ids` already bounds it, and it is order-preserving (same length, same positions, `null` where there was no match — the DataLoader contract).
+- **Domain objects on both ends.** Reads resolve to entity *instances*, writes take them. Crossing to whatever the storage engine wants is the adapter's job, with `toJSON`/`fromJSON` as its tools — that boundary moved nowhere. Writes resolve to `void`: handing back a different instance would silently discard the domain events buffered on the one the caller still holds.
+- **Mode is available as a filter *and* as a projection.** `RepositoryOf<…, Spec, "read">` builds a port that never had a `create`; `ReaderOf<Repository>` narrows one that already exists, including a hand-written one. `WriterOf` is defined as the complement, so an unrecognised method (`archive`) counts as a write rather than disappearing from both halves.
+- **The last parameter is yours, and unchecked.** `RepositoryOf<typeof User, Spec, RepositoryMode, { findByEmailDomain(domain: string, page: RepositoryPage): Promise<readonly User[]> }>` folds hand-written methods into the port verbatim. `beans` can't derive them from a blueprint, so it doesn't pretend to validate them — the generated half is proven against the model, the extra half is your word. Reaching it with the default mode means spelling `RepositoryMode` out.
+- **An empty selection resolves to `never`, deliberately.** Asking for the write half of a read-only spec is a mistake, and `never` in a `Deps` slot makes it a compile error at the call site rather than a constraint that quietly switched itself off. Extras given alongside still survive on their own.
+- **The generic `findBy(property, value)` is dead.** A single catch-all lookup can't be typed, which is what forced `repository.findBy("slug" as never, id as never)` on its callers. Here the property *is* the method name and its value type comes from the blueprint, so neither argument needs a cast.
+
+### Test doubles
+
+The same blueprint that generates the contract generates a working implementation of it, for tests:
+
+```typescript
+import { inMemoryRepositoryOf } from "@roastery/beans/testing";
+
+// Everything the blueprint derives — findById, findByEmail, findManyByName,
+// findMany, findManyByIds, count, create, update, delete
+const users = inMemoryRepositoryOf(User);
+
+// Only what this test needs; the rest is absent from the type *and* the object
+const readers = inMemoryRepositoryOf(User, ["findById", "findByEmail"]);
+const grouped = inMemoryRepositoryOf(User, { read: ["findById"], write: ["create"] });
+
+// A third argument for whatever no blueprint could derive. `[]` is how you
+// reach it without narrowing the second.
+const flaky = inMemoryRepositoryOf(User, [], (context) => {
+  let calls = 0;
+
+  return {
+    seed: (...rows: User[]) => {
+      for (const row of rows) context.rows.set(row.id, row.toJSON());
+    },
+    clear: () => context.rows.clear(),
+    async findById(id: string) {
+      calls += 1;
+      if (calls === 2) throw new Error("connection lost");
+      return context.findById(id); // the generated one, still reachable
+    },
+  };
+});
+
+// Drops straight into a use case's Deps — it *is* the port, not a look-alike
+const { result } = await new RenameUser({ userId, name: "alan" }).execute({ users });
+```
+
+Key rules:
+
+- **It returns the port itself.** The type is `RepositoryOf<typeof User, Spec>` — the very type a `PrismaUserRepository` implements — so a double is substitutable for the real adapter by construction, not by a parallel interface someone keeps in sync.
+- **The spec applies at runtime, not just in the type.** `["findById"]` produces an object with exactly one method, so a call outside the spec fails in the test run as well as in the compiler.
+- **Empty or omitted means everything** — the opposite of `RepositoryOf`'s own empty-selection rule, which resolves to `never`. Deliberate: `inMemoryRepositoryOf(User, [], handler)` is how you reach the third argument, so empty has to read as "all of it".
+- **It is faithful, not convenient.** Rows are stored as `toJSON()` and rehydrated with `fromJSON` on every read, so mutating an entity after `create` does **not** change what's stored — only `update()` does. That catches the "forgot to call update" bug instead of hiding it. The price: a read returns an equal but distinct instance with empty `[Events]`/`[Storage]`, so compare with `toEqual` or on `id` — `toBe` will not hold.
+- **The handler's methods are merged over the generated ones**, and `context` is a snapshot taken beforehand — which is what lets a replacement delegate to the original, as `findById` does above. Stubbing one method to throw is a routine thing for a double to want.
+- **Filtering compares with `deepEquals`.** A `StringArrayVO` key serializes to an array, and `===` would never match a freshly built one — silently, which is the worst way for a double to fail.
+- **`findMany` returns insertion order.** The port promises no ordering (no two adapters would agree on one), so a test depending on this order is testing the double rather than the code.
+
+### Write guarantees
+
+The double's writes behave like a database, not like a `Map` — because a permissive store hides exactly the bugs a double exists to surface:
+
+```typescript
+const users = inMemoryRepositoryOf(User);
+const alan = newUser("alan@roastery.dev");
+
+await users.create(alan);
+await users.create(alan);            // ✗ ConflictException — id already stored
+await users.create(sameEmail());     // ✗ ConflictException — unique key taken
+await users.update(neverPersisted);  // ✗ ResourceNotFoundException — zero rows affected
+await users.delete(neverPersisted);  // ✗ ResourceNotFoundException — same
+```
+
+All four throw from `@roastery/terroir/exceptions/infra`, the layer an adapter's failures belong to. The unique keys come from [the declaration](#unique-values) — `unique: true` on a value-object, `unique: [...]` on the definition, and `id` always.
+
+- **A nullish value never conflicts.** `NULL <> NULL` in SQL, which is the only thing that makes a unique-but-optional column expressible: an `Optional<X>VO`/`Nullable<X>VO` key collides on real values only.
+- **`update` excludes the row it is writing.** Re-saving an entity whose unique value did not change passes; borrowing a sibling row's value does not. No change-tracking needed — it falls out of the exclusion, exactly as it does in a database.
+- **The scan reads the store, not the generated readers.** `inMemoryRepositoryOf(User, ["create"])` has no readers at all and still refuses a duplicate.
+- **The primary key is checked first**, so a duplicate `id` is reported as what it is rather than as a duplicate field.
 
 ---
 
@@ -945,14 +1239,100 @@ The placeholder function receives `(value, context)` — the real value plus the
 
 ---
 
+## Unique values
+
+Uniqueness is the one invariant an entity carries and structurally cannot check: it is a property of the *set* of stored rows, and an instance only ever sees itself. So `beans` splits it in two — the model **declares** it, the repository **enforces** it.
+
+A value-object declares itself unique once, and every blueprint using it inherits the fact — the exact shape `sensitive` already has:
+
+```typescript
+class ExternalIdVO extends ValueObject<string, typeof StringSchema> {
+  protected defineMeta(): IValueObjectMetadata<string, typeof StringSchema> {
+    return { default: "external-id", schema: StringSchema, unique: true };
+  }
+}
+
+// or inline, through any custom-VO factory
+const BadgeCodeVO = customStringVO({ unique: true, options: { minLength: 3 } });
+```
+
+And an aggregate names the extra keys the type alone does not settle:
+
+```typescript
+class Member extends entityOf(memberProperties, "member", { unique: ["handle"] }) {}
+```
+
+`id` is **always** unique, in every entity, declared or not — identity is the primary key. `createdAt`/`updatedAt` are not: two rows may perfectly well be written in the same millisecond. The guarantee lives in the resolver both entity forms reach, so `entityOf` and a hand-written `defineEntity` behave identically.
+
+### Reading the declaration
+
+Two entry points, because an adapter needs the answer at two different moments:
+
+```typescript
+import { uniqueKeysOf } from "@roastery/beans/domain/entity/helpers";
+
+uniqueKeysOf(Member);          // ["id", "externalId", "handle"] — at composition, no instance needed
+member.isUnique("handle");     // true  — on the instance the port hands to create()/update()
+member.isUnique("name");       // false
+member.isUnique("id");         // true  — always
+```
+
+**Neither reads storage, and neither can.** They report the declaration, never whether a value is already taken — that question belongs to the adapter, which is the only side that sees the set. Two entities carrying the same unique value construct perfectly happily:
+
+```typescript
+new Member({ handle: "alan", ... });
+new Member({ handle: "alan", ... }); // fine — nothing in the domain layer objects
+```
+
+`isUnique` throws `InvalidPropertyException` for a key outside the blueprint rather than answering `false`: a predicate that shrugged at a typo would report it as "not unique", which is the failure `get`'s identical guard exists to prevent.
+
+### Enforcing it
+
+`inMemoryRepositoryOf` is the implementation this package ships, and it behaves the way a database would — see [Write guarantees](#write-guarantees) below. A real adapter honours the same declaration, over nothing but the public surface:
+
+```typescript
+async function create(entity: Member): Promise<void> {
+  const row: Record<string, unknown> = { ...entity.toJSON() };
+
+  for (const key of uniqueKeysOf(Member)) {
+    if (key === "id") continue; // the primary key has its own constraint
+
+    if (await rowExists(key, row[key]))
+      throw new ConflictException("postgres", `${key} is taken`);
+  }
+
+  await insert(row);
+}
+```
+
+A `Command` never gains any of this: it is never persisted, so there is no set of rows for `unique` to mean anything against. A `unique: true` value-object used in a command blueprint is simply ignored.
+
+---
+
 ## Exports reference
 
 ```typescript
 // Root barrel: the base classes, plus blueprint and DomainEvent alongside them
 import { blueprint, Command, DomainEvent, Entity, ValueObject } from "@roastery/beans";
 
+// Application layer's own root barrel — AggregateCommand isn't reachable from the package root above
+import { AggregateCommand, Command as ApplicationCommand, commandRegistry } from "@roastery/beans/application";
+
 // Symbols keying the bases' internal slots — from terroir, not from beans
 import { Context, Demo, Events, Meta, Properties, Rules, Source, Storage } from "@roastery/terroir/symbols";
+
+// The Roastery Way: one import path for the low-ceremony subset of everything below
+import {
+  blueprint as wayBlueprint, entityOf, defineDomainEvent, defineUseCase,
+  defineEventHandler, eventedRegistry,
+} from "@roastery/beans/way";
+import type { IEventEmitter as WayIEventEmitter, RepositoryOf as WayRepositoryOf } from "@roastery/beans/way";
+
+// The Roastery Way's own collections subpaths — the VO catalog, one level deeper
+import { EmailVO, UuidVO } from "@roastery/beans/way/collections/value-objects";
+import { OptionalStringVO, OptionalUuidVO } from "@roastery/beans/way/collections/value-objects/optional";
+import { NullableStringVO, NullableUuidVO } from "@roastery/beans/way/collections/value-objects/nullable";
+import { customStringVO, defineValueObject as wayDefineValueObject } from "@roastery/beans/way/collections/value-objects/custom";
 
 // Entity subpaths
 import { deepEquals, entityHas, generateUUID } from "@roastery/beans/domain/entity/helpers";
@@ -981,6 +1361,44 @@ import type { DomainEventClassOf, IDomainEvent } from "@roastery/beans/domain/do
 import { metaOf } from "@roastery/beans/domain/value-object/helpers";
 import type { IValueObjectContext, IValueObjectMetadata } from "@roastery/beans/domain/value-object/types";
 
+// Repository subpath — type-only, so `types` is the canonical path and there is no barrel above it
+import type {
+  ICanCount,
+  ICanCreate,
+  ICanDelete,
+  ICanReadBy,
+  ICanReadId,
+  ICanReadMany,
+  ICanReadManyBy,
+  ICanReadManyByIds,
+  ICanUpdate,
+  IEntityReader,
+  IEntityRepository,
+  IEntityWriter,
+  ReaderOf,
+  RepositoryCollectionFilterKeysOf,
+  RepositoryExtraMethodsBase,
+  RepositoryFilterKeysOf,
+  RepositoryGroupedSpecOf,
+  RepositoryMethodsOf,
+  RepositoryMode,
+  RepositoryOf,
+  RepositoryPage,
+  RepositoryReadMethodsOf,
+  RepositorySpecOf,
+  RepositoryWriteMethods,
+  WriterOf,
+} from "@roastery/beans/domain/repository/types";
+
+// Testing — the doubles and adapters, kept out of the two layers on purpose
+import { inMemoryRepositoryOf, NodeEventEmitterAdapter } from "@roastery/beans/testing";
+import type {
+  InMemoryRepositoryContext,
+  InMemoryRepositoryHandler,
+  InMemoryRepositorySpecOf,
+  InMemorySpecNamesOf,
+} from "@roastery/beans/testing/types";
+
 // Collections (one barrel per kind)
 import { SlugVO, UuidVO } from "@roastery/beans/domain/collections/value-objects";
 import { EmailSchema, UuidSchema } from "@roastery/beans/domain/collections/schemas";
@@ -1005,7 +1423,7 @@ import type {
 } from "@roastery/beans/domain/collections/value-objects/custom/types";
 
 // Command subpaths
-import { collectDomainEvents, collectResult } from "@roastery/beans/application/command/helpers";
+import { aggregateCommandOf, collectDomainEvents, collectResult, commandOf, defineUseCase } from "@roastery/beans/application/command/helpers";
 import type {
   CommandAccessorsOf,
   CommandDefinition,

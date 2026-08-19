@@ -38,6 +38,7 @@ import { deepEquals } from "./helpers/deep-equals";
 import { acceptsUndefined } from "./helpers/accepts-undefined";
 import { buildBaseContext } from "./helpers/build-base-context";
 import { cycleError } from "./helpers/cycle-error";
+import { resolveUniqueKeys } from "./helpers/resolve-unique-keys";
 import { extractIdentity } from "./helpers/extract-identity";
 import { modelOfValueObject } from "./helpers/model-of-value-object";
 import { RAW_ENTITY_KEYS } from "./helpers/raw-entity-keys";
@@ -350,12 +351,16 @@ function rawOf(property: AnyValueObject | AnyEntity): unknown {
  *   protected defineEntity(): EntityDefinition<typeof postProperties> {
  *     return { properties: postProperties, source: "post" };
  *   }
+ *
+ *   public rename(title: string): void {
+ *     this.set("title", title); // set/setMany are protected — only reachable from here
+ *   }
  * }
  *
  * const post = new Post({ title: "Hello", author: { name: "alan" } });
  * post.title;              // "Hello" — derived accessor
  * post.author.name;        // chains: the accessor returns the nested instance
- * post.set("title", "Hi"); // stamps updatedAt once
+ * post.rename("Hi");       // stamps updatedAt once
  * post.toJSON();           // plain object, recursing into author
  * Post.fromJSON(row);      // strict static hydration
  * Post.demo();             // fixture without data
@@ -398,6 +403,14 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * memo shared by every instance of the class.
 	 */
 	readonly #sensitive: ReadonlyMap<string, ISensitiveKey>;
+
+	/**
+	 * Which keys {@link Entity.isUnique} reports as unique. Resolved once per
+	 * instance from `id` plus the two declaring sources — each value-object's
+	 * own `unique` flag, and any extra key `defineEntity` named — over a memo
+	 * shared by every instance of the class.
+	 */
+	readonly #unique: ReadonlySet<string>;
 
 	/**
 	 * Whether {@link Entity.destroy} has been called. A true JS private field,
@@ -443,7 +456,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * @throws `InvalidPropertyException` — when a value fails validation.
 	 */
 	public constructor(context: RawContextOf<PropertiesShape>) {
-		const { properties, sensitive, source } =
+		const { properties, sensitive, source, unique } =
 			readDefinition<PropertiesShape>(this);
 		const useDefault = (context as unknown) === Demo;
 
@@ -455,6 +468,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		);
 
 		this.#sensitive = resolveSensitiveKeys(properties, sensitive);
+		this.#unique = resolveUniqueKeys(properties, unique);
 		this[Source] = source;
 		this[Properties] = properties;
 		this[Storage] = new EntityStorage();
@@ -630,6 +644,10 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * {@link Entity.setMany}, inheriting its atomicity and its `updatedAt`
 	 * stamping rules.
 	 *
+	 * `protected`: only the entity's own business methods may mutate it.
+	 * External code — a repository, a `Command`, another entity — calls a
+	 * business method instead, never this directly.
+	 *
 	 * @param key - A blueprint key.
 	 * @param value - The property's raw input value.
 	 * @returns `true` when the value actually differed from the current one and
@@ -639,7 +657,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * @throws `InvalidPropertyException` — when the key is outside the
 	 *   blueprint or the value fails validation.
 	 */
-	public set<Key extends keyof PropertiesShape>(
+	protected set<Key extends keyof PropertiesShape>(
 		key: Key,
 		value: InputValueOf<PropertiesShape[Key]>,
 	): boolean {
@@ -661,6 +679,9 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * from `updatedAt` instead would miss two real mutations landing in the
 	 * same millisecond, since that stamp is an ISO string.
 	 *
+	 * `protected`, same as {@link Entity.set} — the mutation primitive itself
+	 * is off-limits to external code, not just its one-key wrapper.
+	 *
 	 * @param values - A partial map of blueprint keys to raw input values.
 	 * @returns `true` when at least one value differed from the current one and
 	 *   `updatedAt` was stamped, `false` when every value matched (including
@@ -671,7 +692,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * @throws `InvalidPropertyException` — when a key is outside the blueprint
 	 *   or a value fails validation.
 	 */
-	public setMany(values: Partial<InputValuesOf<PropertiesShape>>): boolean {
+	protected setMany(values: Partial<InputValuesOf<PropertiesShape>>): boolean {
 		const entries = Object.entries(values);
 
 		for (const [key] of entries) {
@@ -747,6 +768,54 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		return (
 			isEntity(property) ? property : (property as AnyValueObject).value
 		) as ReadValueOf<PropertiesShape, Key>;
+	}
+
+	/**
+	 * Whether a key was **declared** unique — by its value-object's
+	 * `unique: true`, by this entity's own `defineEntity`, or by being `id`.
+	 *
+	 * **It never touches storage, and it cannot.** Uniqueness is a property of
+	 * the *set* of rows; an instance sees one aggregate and has no way to know
+	 * what else was written. So this answers "is this field supposed to be
+	 * unique?", not "is this value already taken?" — the second question
+	 * belongs to whoever implements the repository port, which is where the
+	 * declaration is meant to be read and enforced. Two entities carrying the
+	 * same value in a unique field construct perfectly happily.
+	 *
+	 * `id` always returns `true`: identity is the primary key, unique by
+	 * construction in every entity. `createdAt`/`updatedAt` return `false` —
+	 * two rows may be written in the same millisecond.
+	 *
+	 * @param key - A blueprint key or identity field.
+	 * @returns `true` when the key was declared unique.
+	 *
+	 * @throws `InvalidPropertyException` — when the key is outside
+	 *   `blueprint ∪ id/createdAt/updatedAt`. A predicate answering `false` to a
+	 *   mistyped name would turn a typo into a silent "not unique", which is the
+	 *   failure mode {@link Entity.get}'s identical guard exists to prevent.
+	 *
+	 * @example
+	 * ```ts
+	 * class User extends entityOf(userProperties, "user", { unique: ["handle"] }) {}
+	 *
+	 * const user = new User({ email: "alan@roastery.dev", handle: "alan", name: "Alan" });
+	 *
+	 * user.isUnique("id");     // true — always
+	 * user.isUnique("email");  // true — EmailVO declared it
+	 * user.isUnique("handle"); // true — the definition named it
+	 * user.isUnique("name");   // false
+	 * ```
+	 *
+	 * @see `uniqueKeysOf` in `./helpers` — the same declaration, read off the
+	 *   class, for an adapter that has no instance yet.
+	 */
+	public isUnique<Key extends ReadableKey<PropertiesShape>>(key: Key): boolean {
+		const name = String(key);
+
+		if (!RAW_ENTITY_KEYS.has(name) && !Object.hasOwn(this[Properties], name))
+			throw new InvalidPropertyException(name, this[Source]);
+
+		return this.#unique.has(name);
 	}
 
 	/**

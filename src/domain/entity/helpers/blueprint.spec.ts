@@ -11,6 +11,7 @@ import type {
 	RulesOf,
 	SerializedEntity,
 } from "@/domain/entity/types";
+import type { InputValueOf } from "@/domain/entity/types/input-value-of.type";
 import {
 	InvalidDomainDataException,
 	InvalidEntityDefinitionException,
@@ -38,6 +39,18 @@ interface PostTag extends AccessorsOf<typeof postTagProperties> {}
 class PostTag extends Entity<typeof postTagProperties> {
 	protected defineEntity(): EntityDefinition<typeof postTagProperties> {
 		return { properties: postTagProperties, source: "post-tag" };
+	}
+
+	/**
+	 * Widens `set` back to public — the "mutation" tests below exercise it
+	 * directly, from outside the class. Loosely typed on purpose:
+	 * `postTagProperties` carries a `Rules` slot, and a precisely generic
+	 * override (`Key extends keyof typeof postTagProperties`) can't stay
+	 * well-formed against `InputValueOf`'s `AnyPropertyClass` constraint once
+	 * `Key` ranges over that slot too.
+	 */
+	public override set(key: string | symbol, value: unknown): boolean {
+		return super.set(key as never, value as never);
 	}
 }
 
@@ -312,6 +325,14 @@ describe("blueprint", () => {
 			protected defineEntity(): EntityDefinition<typeof postProperties> {
 				return { properties: postProperties, source: "post" };
 			}
+
+			/** Widens `set` back to public — "rebuilds through set" below exercises it directly, from outside the class. */
+			public override set<Key extends keyof typeof postProperties>(
+				key: Key,
+				value: InputValueOf<(typeof postProperties)[Key]>,
+			): boolean {
+				return super.set(key, value);
+			}
 		}
 
 		it("applies the nested entity's rules to its raw payload", () => {
@@ -346,6 +367,14 @@ describe("blueprint", () => {
 			class Blog extends Entity<typeof blogProperties> {
 				protected defineEntity(): EntityDefinition<typeof blogProperties> {
 					return { properties: blogProperties, source: "blog" };
+				}
+
+				/** Widens `set` back to public — "relaxes the grandchild through set" below exercises it directly, from outside the class. */
+				public override set<Key extends keyof typeof blogProperties>(
+					key: Key,
+					value: InputValueOf<(typeof blogProperties)[Key]>,
+				): boolean {
+					return super.set(key, value);
 				}
 			}
 

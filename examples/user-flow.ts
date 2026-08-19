@@ -16,12 +16,14 @@ import {
     OptionalStringVO,
 } from "@/domain/collections/value-objects/optional";
 import { defineDomainEvent } from "@/domain/domain-event";
-import {
-    onCreate,
-    onDelete,
-    onUpdate,
-} from "@/domain/entity/decorators";
+import { onCreate, onDelete, onUpdate } from "@/domain/entity/decorators";
 import { entityOf, generateUUID } from "@/domain/entity/helpers";
+import type {
+    RepositoryOf,
+    ICanReadBy,
+    ICanDelete,
+} from "@/domain/repository/types";
+import { inMemoryRepositoryOf } from "@/testing";
 import {
     ResourceNotFoundException,
     UnauthorizedException,
@@ -37,8 +39,8 @@ const userProperties = blueprint({
 });
 
 /*
-TODO: Criar um gerador de tipagem de interface para repositório, separando o writer do reader, e criando métodos costumizados para cada uma delas. Mas assim, é só pra criar o tipo.
 TODO: Create a value-object type that can accept a varying type. Example: document could be number or string.
+// TODO: Criar uma forma de esses campos sensíveis de object-values impedirem até de que o RepositoryOf pudesse gerar auto-inferência. Ou seja, não permitir que desse pra criar métodos sobre isso
 */
 
 const CreateUserEvent = defineDomainEvent("create-user-event");
@@ -62,14 +64,13 @@ class User extends entityOf(userProperties, "user") {
     }
 }
 
-// In-memory repository — just enough for the commands below to have
-// somewhere to look up/save a User, without needing a real database here.
-type UserRepository = {
-    findById(id: string): Promise<User | null>;
-    findByEmail(email: string): Promise<User | null>;
-    save(user: User): Promise<void>;
-    remove(id: string): Promise<void>;
-};
+// The port, derived from User's own blueprint rather than written by hand:
+// `findByEmail` exists because the blueprint declares `email`, and takes a
+// string because that key is an EmailVO. Nothing here is emitted at runtime.
+type UserRepository = RepositoryOf<
+    typeof User,
+    "findById" | "findByEmail" | "create" | "update" | "delete" | "findMany"
+>;
 
 type SecretsService = {
     create(value: string): Promise<string>;
@@ -105,7 +106,7 @@ class CreateUser extends commandOf<
             password: passwordId,
         });
 
-        await deps.users.save(newUser);
+        await deps.users.create(newUser);
 
         return { result: newUser, events: collectDomainEvents(newUser) };
     }
@@ -151,13 +152,13 @@ class UpdateUser extends commandOf<
         if (newPassword) {
             await deps.secrets.remove(targetUser.get("password"));
             const newPasswordId = await deps.secrets.create(newPassword);
-            targetUser.set("password", newPasswordId);
+            targetUser.changePassword(newPasswordId);
         }
 
         const name = this.newName;
         if (name) targetUser.rename(name);
 
-        await deps.users.save(targetUser);
+        await deps.users.update(targetUser);
 
         return { result: targetUser, events: collectDomainEvents(targetUser) };
     }
@@ -236,7 +237,7 @@ class ReadUser extends commandOf<typeof readUserProperties, ReadUserDeps, User>(
 const deleteUserProperties = { id: UuidVO };
 
 type DeleteUserDeps = {
-    users: UserRepository;
+    users: ICanReadBy<typeof User, "id"> & ICanDelete<typeof User>;
 };
 
 class DeleteUser extends commandOf<
@@ -256,7 +257,7 @@ class DeleteUser extends commandOf<
             );
 
         user.destroy(); // dispara onDelete (destroy-user-event) e marca isDestroyed
-        await deps.users.remove(user.id);
+        await deps.users.delete(user);
 
         // Collects both the read-user-event (from findById) and the
         // destroy-user-event (from destroy()) — in that order.
@@ -266,161 +267,179 @@ class DeleteUser extends commandOf<
 
 // --- fakes to run the flow end-to-end, without real infrastructure ---
 
-// Stores serialized rows, not live instances — the way a real table would.
-// Each read re-hydrates via fromJSON, exercising the strict real-world path
-// (as opposed to handing back the same instance).
-type UserRow = ReturnType<User["toJSON"]>;
+// The other half of the pillar: the same blueprint that generated the
+// UserRepository *type* above generates a working double for it. Stores
+// serialized rows, not live instances — the way a real table would — and each
+// read re-hydrates via fromJSON, exercising the strict real-world path.
+const userRepository: UserRepository = inMemoryRepositoryOf(User, [
+    "findById",
+    "findByEmail",
+    "create",
+    "update",
+    "delete",
+    "findMany",
+]);
 
-const database = new Map<string, UserRow>();
-
-const userRepository: UserRepository = {
-    async findById(id) {
-        const row = database.get(id);
-        return row ? User.fromJSON(row) : null;
-    },
-    async findByEmail(email) {
-        for (const row of database.values())
-            if (row.email === email) return User.fromJSON(row);
-        return null;
-    },
-    async save(user) {
-        database.set(user.id, user.toJSON());
-    },
-    async remove(id) {
-        database.delete(id);
-    },
-};
-
-const secretsVault = new Map<string, string>();
-
-const secrets: SecretsService = {
-    async create(value) {
-        const id = generateUUID();
-        secretsVault.set(id, value);
-        return id;
-    },
-    async remove(id) {
-        secretsVault.delete(id);
-    },
-    async find(id) {
-        const value = secretsVault.get(id);
-        if (value === undefined)
-            throw new Error(`No secret found for id "${id}".`);
-        return value;
-    },
-    async check(id, value) {
-        return secretsVault.get(id) === value;
-    },
-};
-
-const createUserCommand = new CreateUser({
-    name: "Alan",
-    email: "alan@roastery.dev",
-    password: "AikoIsDead-13",
+const newUser = new User({
+    email: "account@email.com",
+    name: "John Doe",
+    password: generateUUID(),
 });
 
-const { events: createdEvents, result: user } = await createUserCommand.execute(
-    {
-        secrets,
-        users: userRepository,
-    },
-);
+await userRepository.create(newUser);
 
 console.log(
-    "created:",
-    createdEvents.map((event) => event.name),
-    user.toJSON(),
+    (await userRepository.findMany({ page: 1, perPage: 20 })).map((i) =>
+        i.toJSON(),
+    ),
 );
 
-const updateUserCommand = new UpdateUser({
-    email: "alan@roastery.dev",
-    password: "AikoIsDead-13",
-    newName: "Alan Reis",
-});
-
-const { events: updatedEvents, result: updatedUser } =
-    await updateUserCommand.execute({
-        secrets,
-        users: userRepository,
-        // Calling execute() directly, off the registry, still owes UpdateUser
-        // the same `commands.login` its Deps declares — this is the manual
-        // equivalent of what commandRegistry wires up automatically below.
-        commands: {
-            login: (payload) =>
-                new UserLogin(payload).execute({
-                    secrets,
-                    users: userRepository,
-                }),
-        },
-    });
+newUser.rename("John Doe 2");
 
 console.log(
-    "updated:",
-    updatedEvents.map((event) => event.name),
-    updatedUser.toJSON(),
+    (await userRepository.findMany({ page: 1, perPage: 20 })).map((i) =>
+        i.toJSON(),
+    ),
 );
 
-const loginCommand = new UserLogin({
-    email: "alan@roastery.dev",
-    password: "AikoIsDead-13",
-});
-
-const { result: loggedInUser, events } = await loginCommand.execute({
-    secrets,
-    users: userRepository,
-});
-
-console.log("logged in:", {
-    output: loggedInUser.toJSON(),
-    events: events.map((e) => e.name),
-});
-
-const readUserCommand = new ReadUser({ id: user.id });
-
-const { events: readEvents, result: readUser } = await readUserCommand.execute({
-    users: userRepository,
-});
+await userRepository.update(newUser);
 
 console.log(
-    "read:",
-    readEvents.map((event) => event.name),
-    readUser.toJSON(),
+    (await userRepository.findMany({ page: 1, perPage: 20 })).map((i) =>
+        i.toJSON(),
+    ),
 );
 
-const deleteUserCommand = new DeleteUser({ id: user.id });
+// const secretsVault = new Map<string, string>();
 
-const { events: deletedEvents, result: deletedUser } =
-    await deleteUserCommand.execute({ users: userRepository });
+// const secrets: SecretsService = {
+//     async create(value) {
+//         const id = generateUUID();
+//         secretsVault.set(id, value);
+//         return id;
+//     },
+//     async remove(id) {
+//         secretsVault.delete(id);
+//     },
+//     async find(id) {
+//         const value = secretsVault.get(id);
+//         if (value === undefined)
+//             throw new Error(`No secret found for id "${id}".`);
+//         return value;
+//     },
+//     async check(id, value) {
+//         return secretsVault.get(id) === value;
+//     },
+// };
 
-console.log(
-    "deleted:",
-    deletedEvents.map((event) => event.name),
-    deletedUser.isDestroyed,
-);
+// const createUserCommand = new CreateUser({
+//     name: "Alan",
+//     email: "alan@roastery.dev",
+//     password: "AikoIsDead-13",
+// });
 
-const registry = commandRegistry({
-    createUser: CreateUser,
-    updateUser: UpdateUser,
-    login: UserLogin,
-}).withDependencies<CreateUserDeps>({ secrets, users: userRepository });
+// const { events: createdEvents, result: user } = await createUserCommand.execute(
+//     {
+//         secrets,
+//         users: userRepository,
+//     },
+// );
 
-const registeredCreateUser = await registry.get("createUser")({
-    name: "Registry User",
-    email: "registry@roastery.dev",
-    password: "Password-123",
-});
+// console.log(
+//     "created:",
+//     createdEvents.map((event) => event.name),
+//     user.toJSON(),
+// );
 
-console.log("via registry:", registeredCreateUser.result.toJSON());
+// const updateUserCommand = new UpdateUser({
+//     email: "alan@roastery.dev",
+//     password: "AikoIsDead-13",
+//     newName: "Alan Reis",
+// });
 
-// UpdateUser reuses the already-registered Login command internally (via
-// deps.commands.login) instead of duplicating credential verification.
-const { result: renamedUser } = await registry.get("updateUser")({
-    email: "registry@roastery.dev",
-    password: "Password-123",
-    newName: "Registry User Renamed",
-});
+// const { events: updatedEvents, result: updatedUser } =
+//     await updateUserCommand.execute({
+//         secrets,
+//         users: userRepository,
+//         // Calling execute() directly, off the registry, still owes UpdateUser
+//         // the same `commands.login` its Deps declares — this is the manual
+//         // equivalent of what commandRegistry wires up automatically below.
+//         commands: {
+//             login: (payload) =>
+//                 new UserLogin(payload).execute({
+//                     secrets,
+//                     users: userRepository,
+//                 }),
+//         },
+//     });
 
-console.log(
-    "updated via registry (composed with login):",
-    renamedUser.toJSON(),
-);
+// console.log(
+//     "updated:",
+//     updatedEvents.map((event) => event.name),
+//     updatedUser.toJSON(),
+// );
+
+// const loginCommand = new UserLogin({
+//     email: "alan@roastery.dev",
+//     password: "AikoIsDead-13",
+// });
+
+// const { result: loggedInUser, events } = await loginCommand.execute({
+//     secrets,
+//     users: userRepository,
+// });
+
+// console.log("logged in:", {
+//     output: loggedInUser.toJSON(),
+//     events: events.map((e) => e.name),
+// });
+
+// const readUserCommand = new ReadUser({ id: user.id });
+
+// const { events: readEvents, result: readUser } = await readUserCommand.execute({
+//     users: userRepository,
+// });
+
+// console.log(
+//     "read:",
+//     readEvents.map((event) => event.name),
+//     readUser.toJSON(),
+// );
+
+// const deleteUserCommand = new DeleteUser({ id: user.id });
+
+// const { events: deletedEvents, result: deletedUser } =
+//     await deleteUserCommand.execute({ users: userRepository });
+
+// console.log(
+//     "deleted:",
+//     deletedEvents.map((event) => event.name),
+//     deletedUser.isDestroyed,
+// );
+
+// const registry = commandRegistry({
+//     createUser: CreateUser,
+//     updateUser: UpdateUser,
+//     login: UserLogin,
+// }).withDependencies<CreateUserDeps>({ secrets, users: userRepository });
+
+// const registeredCreateUser = await registry.get("createUser")({
+//     name: "Registry User",
+//     email: "registry@roastery.dev",
+//     password: "Password-123",
+// });
+
+// console.log("via registry:", registeredCreateUser.result.toJSON());
+
+// // UpdateUser reuses the already-registered Login command internally (via
+// // deps.commands.login) instead of duplicating credential verification.
+// const { result: renamedUser } = await registry.get("updateUser")({
+//     email: "registry@roastery.dev",
+//     password: "Password-123",
+//     newName: "Registry User Renamed",
+// });
+
+// console.log(
+//     "updated via registry (composed with login):",
+//     renamedUser.toJSON(),
+// );

@@ -1,10 +1,7 @@
 import type { ValueObject } from "@/domain/value-object";
 import type { t } from "@roastery/terroir";
 import { BadRequestException } from "@roastery/terroir/exceptions/application";
-import {
-	InvalidEntityDefinitionException,
-	InvalidPropertyException,
-} from "@roastery/terroir/exceptions/domain";
+import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import { SchemaManager } from "@roastery/terroir/schema";
 import { Context, Demo, Properties, Source } from "@roastery/terroir/symbols";
 import { installAccessors } from "@/shared/helpers/install-accessors";
@@ -13,6 +10,7 @@ import { resolveSensitiveKeys } from "@/shared/redaction/resolve-sensitive-keys"
 import type { ISensitiveKey } from "@/shared/redaction/sensitive-keys-of";
 import { buildContext } from "./helpers/build-context";
 import { modelFor } from "./helpers/model-for";
+import { readBoundDefinition } from "./helpers/read-bound-definition";
 import { readDefinition } from "./helpers/read-definition";
 import type { CommandContextOf } from "./types/command-context-of.type";
 import type { CommandDefinition } from "./types/command-definition.type";
@@ -375,16 +373,6 @@ export abstract class BoundCommand<
 	 *   some other way and carries no definition.
 	 */
 	protected defineCommand(): CommandDefinition<Shape> {
-		const { definition } = this.constructor as {
-			definition?: CommandDefinition<Shape>;
-		};
-
-		if (!definition)
-			throw new InvalidEntityDefinitionException(
-				"command",
-				"Command: this class descends from the blueprint-bound base but carries no definition. Build it with commandOf(properties, source), or extend Command directly and implement defineCommand.",
-			);
-
-		return definition;
+		return readBoundDefinition<Shape>(this, "commandOf");
 	}
 }

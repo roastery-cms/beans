@@ -8,6 +8,9 @@
  * - {@link Command} — abstract, blueprint-driven base class every
  *   application-layer command extends; its original home is
  *   `@roastery/beans/application/command`.
+ * - {@link AggregateCommand} — `Command` specialized for a single-aggregate
+ *   result: `execute()` is already implemented, the subclass writes
+ *   `handle()` instead; same original home.
  * - {@link commandRegistry} — two-phase builder gating access to a set of
  *   `Command` subclasses by their declared dependencies, at compile time;
  *   its original home is `@roastery/beans/application/command-registry`.
@@ -18,5 +21,5 @@
  * reuse a `ValueObject`.
  */
 
-export { Command } from "./command";
+export { AggregateCommand, Command } from "./command";
 export { commandRegistry } from "./command-registry";

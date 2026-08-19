@@ -34,6 +34,17 @@ export interface IValueObjectHooks<ValueType> {
 	readonly sensitive?: boolean;
 
 	/**
+	 * Marks the generated class's values as unique across every row of the
+	 * aggregate that holds them, mirroring `IValueObjectMetadata.unique`.
+	 *
+	 * Declarative only: nothing in the domain layer checks it, because
+	 * uniqueness is a property of the set of stored rows rather than of any one
+	 * value. The repository adapter reads it back through
+	 * `uniqueKeysOf(EntityClass)` or `entity.isUnique(key)`.
+	 */
+	readonly unique?: boolean;
+
+	/**
 	 * This class's own replacement value, overriding the package-wide
 	 * `configureRedaction({ placeholder })`. A ready value, or a function of
 	 * `(value, context)` — receiving the real value is what allows partial

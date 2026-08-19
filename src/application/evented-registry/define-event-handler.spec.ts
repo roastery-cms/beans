@@ -4,7 +4,7 @@ import type {
 	CommandResult,
 } from "@/application/command/types";
 import { NumberVO } from "@/domain/collections/value-objects";
-import { DomainEvent } from "@/domain/domain-event";
+import { defineDomainEvent, DomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
 import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
 import { describe, expect, it } from "bun:test";
@@ -96,6 +96,41 @@ describe("defineEventHandler", () => {
 		);
 
 		expect(Handler.name).toBeDefined();
+	});
+
+	describe("the class-reference overload", () => {
+		it("accepts typeof EventClass directly, no InstanceType<...> needed, and keeps the concrete event's own fields", async () => {
+			const received: unknown[] = [];
+			const Handler = defineEventHandler<typeof OrderConfirmed, TrackerDeps>(
+				async (event, deps) => {
+					received.push(event.total, deps);
+				},
+			);
+			const event = new OrderConfirmed("order-1", 42);
+			const deps: TrackerDeps = { tracker: { record: () => {} } };
+
+			await new Handler().handle(event, deps);
+
+			expect(received).toEqual([42, deps]);
+		});
+
+		it("also works for a defineDomainEvent-generated event", async () => {
+			const BeanPlanted = defineDomainEvent("bean.planted");
+			const received: string[] = [];
+			const Handler = defineEventHandler<typeof BeanPlanted>(async (event) => {
+				received.push(event.name, event.aggregateId);
+			});
+
+			await new Handler().handle(new BeanPlanted("bean-1"), undefined);
+
+			expect(received).toEqual(["bean.planted", "bean-1"]);
+		});
+
+		it("Deps defaults to unknown when omitted, so handle's second parameter can be dropped", () => {
+			const Handler = defineEventHandler<typeof OrderConfirmed>(async () => {});
+
+			expect(typeof new Handler().handle).toBe("function");
+		});
 	});
 
 	describe("name", () => {

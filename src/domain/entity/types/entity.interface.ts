@@ -2,8 +2,6 @@ import type { IDomainEvent } from "@/domain/domain-event/types";
 import type { Context, Properties, Source } from "@roastery/terroir/symbols";
 import type { ContextOf } from "./context-of.type";
 import type { EntitySchemaOf } from "./entity-schema-of.type";
-import type { InputValueOf } from "./input-value-of.type";
-import type { InputValuesOf } from "./input-values-of.type";
 import type { PropertiesShapeBase } from "./properties-shape-base.type";
 import type { ReadValueOf } from "./read-value-of.type";
 import type { ReadableKey } from "./readable-key.type";
@@ -17,6 +15,11 @@ import type { SerializedEntity } from "./serialized-entity.type";
  * The three symbol-keyed members mirror the slots the base class fills during
  * construction: the entity-type name under `[Source]`, the blueprint under
  * `[Properties]` and the built property map under `[Context]`.
+ *
+ * Deliberately read-only from this contract's point of view: `set`/`setMany`
+ * are `protected` on `Entity` itself, reachable only from a subclass's own
+ * business methods, so they have no place in a structural type meant for
+ * code that only *consumes* an entity.
  *
  * @typeParam PropertiesShape - The entity's blueprint shape. Defaults to
  *   {@link PropertiesShapeBase} so the interface can be used unparameterised.
@@ -62,19 +65,13 @@ export interface IEntity<
 	/** JSON-string form of {@link IEntity.toSafeJSON} — safe to log. */
 	toString(): string;
 
-	/** Replaces one property from its raw value. Delegates to `setMany`, returning its change flag. */
-	set<Key extends keyof PropertiesShape>(
-		key: Key,
-		value: InputValueOf<PropertiesShape[Key]>,
-	): boolean;
-
-	/** Atomically replaces many properties; stamps `updatedAt` once if anything changed, and returns whether it did. */
-	setMany(values: Partial<InputValuesOf<PropertiesShape>>): boolean;
-
 	/** Reads one key: identity string, nested instance, or wrapped raw value. */
 	get<Key extends ReadableKey<PropertiesShape>>(
 		key: Key,
 	): ReadValueOf<PropertiesShape, Key>;
+
+	/** Whether a key was **declared** unique (`id` always is). Reports the declaration only — it never reads storage. */
+	isUnique<Key extends ReadableKey<PropertiesShape>>(key: Key): boolean;
 
 	/** Drains the buffered domain events raised via `raiseEvent`, emptying the buffer; `deep` drains nested entities too. */
 	pullDomainEvents(options?: {

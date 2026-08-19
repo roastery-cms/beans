@@ -1,10 +1,10 @@
-import { blueprint } from "@/domain";
+import { blueprint, entityOf } from "@/way";
 import {
     BooleanVO,
     SlugVO,
     StringVO,
-} from "@/domain/collections/value-objects";
-import { entityHas, entityOf } from "@/domain/entity/helpers";
+} from "@/way/collections/value-objects";
+import { entityHas } from "@/domain/entity/helpers";
 
 const postTagProperties = blueprint({
     name: StringVO,

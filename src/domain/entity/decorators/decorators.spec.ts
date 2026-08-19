@@ -2,6 +2,8 @@ import { StringVO } from "@/domain/collections/value-objects";
 import { DomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
 import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
+import type { InputValueOf } from "@/domain/entity/types/input-value-of.type";
+import type { InputValuesOf } from "@/domain/entity/types/input-values-of.type";
 import { describe, expect, it } from "bun:test";
 import { afterHandle } from "./after-handle.decorator";
 import { beforeHandle } from "./before-handle.decorator";
@@ -82,6 +84,20 @@ interface User extends AccessorsOf<typeof userProperties> {}
 class User extends Entity<typeof userProperties> {
 	protected defineEntity(): EntityDefinition<typeof userProperties> {
 		return { properties: userProperties, source: "user" };
+	}
+
+	/** Widens `set`/`setMany` back to public — the `onUpdate` tests below exercise them directly, from outside the class. */
+	public override set<Key extends keyof typeof userProperties>(
+		key: Key,
+		value: InputValueOf<(typeof userProperties)[Key]>,
+	): boolean {
+		return super.set(key, value);
+	}
+
+	public override setMany(
+		values: Partial<InputValuesOf<typeof userProperties>>,
+	): boolean {
+		return super.setMany(values);
 	}
 
 	@beforeHandle(PromotionStarted)

@@ -20,16 +20,18 @@ import type { IDomainEvent } from "@/domain/domain-event/types";
  *
  * @example
  * ```ts
- * // Adapting Node's own EventEmitter: one line, no subscription logic needed.
- * class NodeEventEmitterAdapter implements IEventEmitter {
- *   public constructor(private readonly inner: NodeJS.EventEmitter) {}
- *   public emit(event: IDomainEvent): void {
- *     this.inner.emit(event.name, event);
+ * // Adapting a bus is one method, with no subscription logic needed.
+ * class KafkaEmitter implements IEventEmitter {
+ *   public constructor(private readonly producer: Producer) {}
+ *   public async emit(event: IDomainEvent): Promise<void> {
+ *     await this.producer.send({ topic: event.name, messages: [{ value: JSON.stringify(event) }] });
  *   }
  * }
  * ```
  *
  * @see `eventedRegistry` in `@roastery/beans/application/evented-registry` — the only caller of `emit`.
+ * @see `NodeEventEmitterAdapter` in `@roastery/beans/testing` — the ready-made
+ *   adapter for Node's own `EventEmitter`, so that one never has to be written.
  */
 export interface IEventEmitter {
 	/**

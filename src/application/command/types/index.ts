@@ -7,6 +7,7 @@
  * needed).
  *
  * Re-exports:
+ * - {@link AggregateCommandClassOf} — the class `aggregateCommandOf` returns.
  * - {@link CommandAccessorsOf} — the interface to merge for blueprint-derived accessors.
  * - {@link CommandClassOf} — the class `commandOf` returns.
  * - {@link CommandDefinition} — what `defineCommand()` returns.
@@ -17,6 +18,7 @@
  * - {@link SerializedCommand} — what `toJSON()` returns / `fromJSON` accepts.
  */
 
+export type { AggregateCommandClassOf } from "./aggregate-command-class-of.type";
 export type { CommandAccessorsOf } from "./command-accessors-of.type";
 export type { CommandClassOf } from "./command-class-of.type";
 export type { CommandDefinition } from "./command-definition.type";

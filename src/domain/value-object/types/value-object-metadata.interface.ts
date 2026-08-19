@@ -52,6 +52,28 @@ export interface IValueObjectMetadata<ValueType, SchemaType extends t.TSchema> {
 	readonly sensitive?: boolean;
 
 	/**
+	 * Marks the wrapped value as unique across every row of the aggregate that
+	 * holds it. Travels with the class, exactly as
+	 * {@link IValueObjectMetadata.sensitive} does: an `ExternalIdVO` is unique
+	 * in every blueprint that uses it, without each of them saying so.
+	 *
+	 * **Nothing in the domain layer enforces this, and nothing can.** Uniqueness
+	 * is a property of the *set* of rows, which only the persistence adapter
+	 * ever sees — a `ValueObject` validates one value, an `Entity` validates one
+	 * aggregate, and neither has a way to know what else was stored. So
+	 * construction never fails because of this flag; it is a declaration the
+	 * repository port's implementer reads and honours, through
+	 * `uniqueKeysOf(EntityClass)` or `entity.isUnique(key)`.
+	 *
+	 * Ignored by `Command`: a command is never persisted, so there is no set of
+	 * rows for the flag to mean anything against.
+	 *
+	 * @see `uniqueKeysOf` in `@roastery/beans/domain/entity/helpers` — reads it
+	 *   off a whole blueprint.
+	 */
+	readonly unique?: boolean;
+
+	/**
 	 * This class's own replacement value, overriding the package-wide
 	 * `configureRedaction({ placeholder })`. A ready value, or a function of
 	 * `(value, context)` — receiving the real value is what allows partial
