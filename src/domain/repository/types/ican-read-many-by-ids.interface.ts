@@ -11,7 +11,7 @@ import type { EntityInstanceOf } from "./entity-instance-of.type";
  * two arrays without a second lookup, and it is the whole reason this exists
  * next to `findManyBy*`: it is a batching primitive, not a query.
  *
- * It takes no {@link RepositoryPage} — `ids` already bounds the read, and a
+ * It takes no {@link RepositoryPageOf} — `ids` already bounds the read, and a
  * page on top of it would silently break the positional guarantee above.
  *
  * Note the name: `findManyByIds` (plural), never `findManyById`. The latter is

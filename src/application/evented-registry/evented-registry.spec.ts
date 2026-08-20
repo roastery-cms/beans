@@ -9,7 +9,7 @@ import { DomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
 import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
 import { LoopDetectedException } from "@roastery/terroir/exceptions/application";
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import { eventedRegistry } from "./evented-registry";
 import type { IEventEmitter, IEventHandler } from "./types";
 
@@ -301,6 +301,70 @@ describe("eventedRegistry", () => {
 
 		expect(captured?.eventName).toBe("order.confirmed");
 		expect((captured?.error as Error).message).toBe("boom");
+	});
+
+	// The `onError = defaultOnError` default in the options destructuring: with
+	// no hook configured, a throwing reaction must still be isolated, and the
+	// command that raised the event must still resolve.
+	it("isolates a throwing reaction with no onError configured at all", async () => {
+		const scheduled: (() => void)[] = [];
+		const spy = spyOn(globalThis, "queueMicrotask").mockImplementation(
+			(task: () => void) => {
+				scheduled.push(task);
+			},
+		);
+
+		try {
+			const registry = eventedRegistry(
+				{ confirmOrder: ConfirmOrderCommand },
+				fakeEmitter(),
+			)
+				.withDependencies({})
+				.on(OrderConfirmed, ThrowingHandler);
+
+			const { result } = await registry.get("confirmOrder")({ total: 9 });
+
+			expect(result).toBeInstanceOf(Order);
+			expect(scheduled).toHaveLength(1);
+			expect(scheduled[0]).toThrow("boom");
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	// The second-level fallback: the hook itself failing has nowhere left to
+	// escalate to without giving up isolation, so it falls back to
+	// `defaultOnError` regardless of what `onError` was configured to.
+	it("falls back to the default when onError itself throws", async () => {
+		const scheduled: (() => void)[] = [];
+		const spy = spyOn(globalThis, "queueMicrotask").mockImplementation(
+			(task: () => void) => {
+				scheduled.push(task);
+			},
+		);
+
+		try {
+			const registry = eventedRegistry(
+				{ confirmOrder: ConfirmOrderCommand },
+				fakeEmitter(),
+				{
+					onError: () => {
+						throw new Error("the hook exploded too");
+					},
+				},
+			)
+				.withDependencies({})
+				.on(OrderConfirmed, ThrowingHandler);
+
+			const { result } = await registry.get("confirmOrder")({ total: 9 });
+
+			// Still resolved: neither failure may reject the CommandResult.
+			expect(result).toBeInstanceOf(Order);
+			expect(scheduled).toHaveLength(1);
+			expect(scheduled[0]).toThrow("the hook exploded too");
+		} finally {
+			spy.mockRestore();
+		}
 	});
 
 	it("chains a reaction into a triggered command's own events reaching a second reaction", async () => {

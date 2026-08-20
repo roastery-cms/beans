@@ -23,6 +23,10 @@ import type { ICustomValueObjectArgs, ValueObjectClassOf } from "./types";
  * **Call it at module scope, once** — see `defineValueObject` for why.
  *
  * @typeParam Values - The non-empty tuple of literal values the VO accepts.
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  *
  * @param values - The allowed values, in the order they should be tried as a
  *   fallback default (the first one, when `args.default` is omitted).
@@ -46,10 +50,15 @@ import type { ICustomValueObjectArgs, ValueObjectClassOf } from "./types";
  */
 export function customEnumVO<
 	const Values extends readonly [t.TEnumValue, ...t.TEnumValue[]],
+	Sensitive extends boolean = false,
 >(
 	values: Values,
-	args: ICustomValueObjectArgs<Values[number], t.SchemaOptions> = {},
-): ValueObjectClassOf<Values[number], t.TEnum<Record<string, Values[number]>>> {
+	args: ICustomValueObjectArgs<Values[number], t.SchemaOptions, Sensitive> = {},
+): ValueObjectClassOf<
+	Values[number],
+	t.TEnum<Record<string, Values[number]>>,
+	Sensitive
+> {
 	const { default: fallback = values[0], options, ...hooks } = args;
 
 	const record = Object.fromEntries(

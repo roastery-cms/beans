@@ -30,6 +30,10 @@ const NULL_PLACEHOLDER = null;
  *
  * @typeParam SchemaType - The wrapped schema, validating every non-`null`
  *   value.
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  *
  * @param schema - The schema the value must pass when it is not `null`.
  * @param args - Union-schema options, the demo-mode default, and hooks. When
@@ -52,15 +56,20 @@ const NULL_PLACEHOLDER = null;
  * new NullableBio("Alan", { name: "bio", source: "author" }).value; // "Alan"
  * ```
  */
-export function nullableVO<SchemaType extends t.TSchema>(
+export function nullableVO<
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = false,
+>(
 	schema: SchemaType,
 	args: ICustomValueObjectArgs<
 		t.Static<SchemaType> | null,
-		t.SchemaOptions
+		t.SchemaOptions,
+		Sensitive
 	> = {},
 ): ValueObjectClassOf<
 	t.Static<SchemaType> | null,
-	t.TUnion<[SchemaType, t.TNull]>
+	t.TUnion<[SchemaType, t.TNull]>,
+	Sensitive
 > {
 	const { default: fallback = NULL_PLACEHOLDER, options, ...hooks } = args;
 

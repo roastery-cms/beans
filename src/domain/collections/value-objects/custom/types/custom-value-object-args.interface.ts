@@ -14,6 +14,7 @@ import type { IValueObjectHooks } from "./value-object-hooks.interface";
  * @typeParam ValueType - Runtime type of the value the generated VO wraps.
  * @typeParam OptionsType - The TypeBox options record for the schema kind
  *   (`t.StringOptions`, `t.NumberOptions`, `t.ArrayOptions`, `t.ObjectOptions`).
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed.
  *
  * @see {@link IDefineValueObjectArgs} — the core payload these are lowered into.
  *
@@ -26,8 +27,11 @@ import type { IValueObjectHooks } from "./value-object-hooks.interface";
  * });
  * ```
  */
-export interface ICustomValueObjectArgs<ValueType, OptionsType>
-	extends IValueObjectHooks<ValueType> {
+export interface ICustomValueObjectArgs<
+	ValueType,
+	OptionsType,
+	Sensitive extends boolean = false,
+> extends IValueObjectHooks<ValueType, Sensitive> {
 	/**
 	 * Demo-mode fallback. Optional here: each factory supplies a placeholder
 	 * for its own kind (`""`-free `"string"`, `0`, `[]`, `{}`) when it is

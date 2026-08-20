@@ -9,12 +9,16 @@ describe("NullableNumberVO", () => {
 		expect(new NullableNumberVO(null, context).value).toBeNull();
 	});
 
-	it("accepts a real non-negative number", () => {
+	it("accepts a real number", () => {
 		expect(new NullableNumberVO(7, context).value).toBe(7);
 	});
 
-	it("rejects a negative number", () => {
-		expect(() => new NullableNumberVO(-1, context)).toThrow(
+	it("accepts a negative number", () => {
+		expect(new NullableNumberVO(-1, context).value).toBe(-1);
+	});
+
+	it("rejects a non-number", () => {
+		expect(() => new NullableNumberVO("7" as never, context)).toThrow(
 			InvalidPropertyException,
 		);
 	});

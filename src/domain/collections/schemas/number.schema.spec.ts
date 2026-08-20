@@ -15,8 +15,8 @@ describe("NumberSchema", () => {
 		expect(SchemaManager.match(NumberSchema, 3.14)).toBe(true);
 	});
 
-	it("should invalidate a negative number", () => {
-		expect(SchemaManager.match(NumberSchema, -1)).toBe(false);
+	it("should validate a negative number", () => {
+		expect(SchemaManager.match(NumberSchema, -1)).toBe(true);
 	});
 
 	it("should invalidate a string", () => {

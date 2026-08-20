@@ -180,4 +180,46 @@ describe("ValueObject (v2)", () => {
 			);
 		});
 	});
+
+	describe("sensitive", () => {
+		/**
+		 * The `Sensitive` parameter defaults to `false`, which is what turns
+		 * "declared sensitive but forgot the parameter" from a silently
+		 * ineffective flag into a compile error. That failure mode is the whole
+		 * reason the default is `false` rather than `boolean`, so it is asserted
+		 * rather than left to be rediscovered.
+		 */
+		it("rejects `sensitive: true` without the matching type parameter", () => {
+			class Careless extends ValueObject<string, typeof StringSchema> {
+				protected defineMeta(): IValueObjectMetadata<
+					string,
+					typeof StringSchema
+				> {
+					return {
+						default: "string",
+						schema: StringSchema,
+						// @ts-expect-error `true` is not assignable to the default `false`.
+						sensitive: true,
+					};
+				}
+			}
+
+			expect(new Careless("alan", context).value).toBe("alan");
+		});
+
+		it("carries the literal into the Meta slot once the parameter is given", () => {
+			class Careful extends ValueObject<string, typeof StringSchema, true> {
+				protected defineMeta(): IValueObjectMetadata<
+					string,
+					typeof StringSchema,
+					true
+				> {
+					return { default: "string", schema: StringSchema, sensitive: true };
+				}
+			}
+
+			expect(metaOf(Careful).sensitive).toBe(true);
+			expect(metaOf(DefinedStringVO).sensitive).toBeUndefined();
+		});
+	});
 });

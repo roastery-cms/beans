@@ -7,7 +7,7 @@ import { entityOf } from "@/domain/entity/helpers";
 import type {
 	ICanReadBy,
 	ICanReadManyBy,
-	RepositoryPage,
+	RepositoryPageOf,
 } from "@/domain/repository/types";
 import { describe, expect, it } from "bun:test";
 
@@ -127,7 +127,7 @@ describe("ICanReadManyBy", () => {
 		const name: Equal<keyof Contract, "findManyByStock"> = true;
 		const signature: Equal<
 			Parameters<Contract["findManyByStock"]>,
-			[value: number, page: RepositoryPage]
+			[value: number, page: RepositoryPageOf<typeof Product>]
 		> = true;
 
 		expect([name, signature]).toEqual([true, true]);
@@ -138,11 +138,11 @@ describe("ICanReadManyBy", () => {
 
 		const byTitle: Equal<
 			Parameters<Contract["findManyByTitle"]>,
-			[value: string, page: RepositoryPage]
+			[value: string, page: RepositoryPageOf<typeof Product>]
 		> = true;
 		const byStock: Equal<
 			Parameters<Contract["findManyByStock"]>,
-			[value: number, page: RepositoryPage]
+			[value: number, page: RepositoryPageOf<typeof Product>]
 		> = true;
 
 		expect([byTitle, byStock]).toEqual([true, true]);

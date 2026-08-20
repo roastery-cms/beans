@@ -16,6 +16,10 @@ const RECORD_PLACEHOLDER: Record<string, unknown> = {};
  *
  * **Call it at module scope, once** — see `defineValueObject` for why.
  *
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  * @param args - Object options, demo-mode default, and behaviour hooks.
  * @returns The generated record value-object class.
  *
@@ -34,11 +38,16 @@ const RECORD_PLACEHOLDER: Record<string, unknown> = {};
  * new Post({ title: "Hi", metadata: { featured: true, weight: 3 } });
  * ```
  */
-export function customRecordVO(
-	args: ICustomValueObjectArgs<Record<string, unknown>, t.ObjectOptions> = {},
+export function customRecordVO<Sensitive extends boolean = false>(
+	args: ICustomValueObjectArgs<
+		Record<string, unknown>,
+		t.ObjectOptions,
+		Sensitive
+	> = {},
 ): ValueObjectClassOf<
 	Record<string, unknown>,
-	t.TRecord<t.TString, t.TUnknown>
+	t.TRecord<t.TString, t.TUnknown>,
+	Sensitive
 > {
 	const { default: fallback = RECORD_PLACEHOLDER, options, ...hooks } = args;
 

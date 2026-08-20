@@ -73,6 +73,9 @@ export interface IEntity<
 	/** Whether a key was **declared** unique (`id` always is). Reports the declaration only — it never reads storage. */
 	isUnique<Key extends ReadableKey<PropertiesShape>>(key: Key): boolean;
 
+	/** Whether the key was declared sensitive, by its value-object or by the definition. */
+	isSensitive<Key extends ReadableKey<PropertiesShape>>(key: Key): boolean;
+
 	/** Drains the buffered domain events raised via `raiseEvent`, emptying the buffer; `deep` drains nested entities too. */
 	pullDomainEvents(options?: {
 		readonly deep?: boolean;

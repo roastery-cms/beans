@@ -86,7 +86,7 @@ Rules resolve in demo mode too, so the fixture is *coherent* rather than a bag o
 
 ### A catalog, not just a base class
 
-**36 ready-made Value Objects** — 12 primitives (UUID, email, slug, datetime, password, URL, …), each with an `Optional*` and a `Nullable*` variant — plus their **12 TypeBox schemas** and **9 factories** (`customStringVO`, `customEnumVO`, `customObjectVO`, `optionalVO`, `nullableVO`, `defineValueObject`, …) for the constraints that do not deserve a file of their own.
+**60 ready-made Value Objects** — 20 primitives (UUID, email, slug, datetime, password, URL, and a full numeric grid of `Number`/`Integer`/`Double` × unconstrained/`Positive*`/`Negative*`), each with an `Optional*` and a `Nullable*` variant — plus their **20 TypeBox schemas** and **12 factories** (`customStringVO`, `customNumberVO`, `customDoubleVO`, `customEnumVO`, `customObjectVO`, `optionalVO`, `nullableVO`, `unionVO`, `customBinaryVO`, `defineValueObject`, …) for the constraints that do not deserve a file of their own.
 
 `optional` and `nullable` are deliberately not interchangeable: an `Optional*VO` key may be omitted from the payload entirely (the type system knows it), while a `Nullable*VO` key must be passed as an explicit `null` — the usual "wasn't provided" (request body) vs. "provided, and empty" (database column) split, enforced at compile time.
 
@@ -120,16 +120,18 @@ It stops where the opinions start, on purpose:
 - **No event bus and no dispatcher.** `raiseEvent` buffers, `pullDomainEvents` drains, `collectDomainEvents` hands the array to a `Command`'s caller. Publishing is the application's call.
 - **No query side.** `Command` is the write path only.
 
+Where those choices have consequences a caller can actually run into, they are gathered in [Known limits](#known-limits) rather than left scattered across the sections that introduce them.
+
 ## The building blocks
 
 - **Entity** *(domain)* — Blueprint-driven base class: validated construction, `toJSON`/`fromJSON`, atomic `set`/`setMany` with automatic `updatedAt` stamping, typed accessors, nested aggregates, a transient `[Storage]` slot, a domain-event buffer, and `destroy()`. `id` (UUID v7), `createdAt` and `updatedAt` come built in.
 - **ValueObject** *(domain)* — Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()`; validation runs in the constructor.
-- **DomainEvent** *(domain)* — Optional abstract base for the events an `Entity` raises, plus `defineDomainEvent(name)` (a factory building a payload-less event class from just its name), three TC39 lifecycle decorators (`onCreate`, `onUpdate`, `onDelete`) that raise them automatically at a fixed point, and three TC39 method decorators (`beforeHandle`, `afterHandle`, `onError`) that raise them around an arbitrary instance method — the first two immediately before/after, `onError` when it throws.
+- **DomainEvent** *(domain)* — Optional abstract base for the events an `Entity` raises, plus `defineDomainEvent(name)` (a factory building a payload-less event class from just its name), three TC39 lifecycle decorators (`onCreate`, `onUpdate`, `onDelete`) that raise them automatically at a fixed point, and two TC39 method decorators (`emit`, `onError`) that raise them around an arbitrary instance method — `emit` once it has run to completion, `onError` when it throws.
 - **Collections** *(domain, aliased under application)* — The Value Object / schema catalog and the custom factories described above.
 - **Command** *(application)* — Blueprint-driven base for orchestrating domain behaviour behind a validated input, resolving to a `CommandResult` (`{ result, events }`). **AggregateCommand** specializes it for a single-aggregate result: `execute()` comes already implemented, the subclass writes `handle()` instead.
 - **Repository** *(domain)* — Type-only ports derived from an entity's blueprint: `RepositoryOf<typeof User, Spec>` builds the contract an adapter implements, out of granular `ICan*` capabilities a use case asks for in its `Deps`. `findByEmail` exists only because the entity declares `email`. **inMemoryRepositoryOf** *(testing)* generates a working double for that same contract, from the same blueprint.
 - **CommandRegistry** *(application)* — Two-phase builder (`commandRegistry(spec).withDependencies(deps)`) that gates access to a set of `Command` subclasses by their declared dependencies, entirely at compile time, and hands back a ready-to-run bound function per command via `get()`. **EventedRegistry** is the same builder, gaining event publishing and reactions (`.on(eventClass, handlerClass)`).
-- **The Roastery Way** *(`@roastery/beans/way`, spans both layers)* — One import path for the low-ceremony subset above: `entityOf`, the value-object catalog, `defineDomainEvent`, `defineUseCase`, `defineEventHandler`, `eventedRegistry`. Re-exports only — nothing new is implemented.
+- **The Roastery Way** *(`@roastery/beans/way`, spans both layers)* — One import path for the low-ceremony subset above: `entityOf`, the value-object catalog, `defineDomainEvent`, `defineUseCase`, `defineEventHandler`, `commandRegistry`, `eventedRegistry`. Re-exports only — nothing new is implemented.
 
 ## Technologies
 
@@ -145,20 +147,22 @@ It stops where the opinions start, on purpose:
 
 ## Installation
 
-Install the package and its peer dependencies:
-
 ```bash
-bun add @roastery/beans @roastery/terroir typescript
+bun add @roastery/beans
 ```
 
-Or install them separately:
+`@roastery/terroir` (schema validation, the exception hierarchy, and the well-known slot symbols) and `slugify` are regular dependencies and come along with it — nothing else to install.
+
+TypeScript is the one **peer** dependency, since the package is types-first: every subpath ships `.d.ts`, and `strict` plus `verbatimModuleSyntax` are what the documented patterns are written against.
 
 ```bash
-# Install the library
-bun add @roastery/beans
+bun add -d typescript
+```
 
-# Install peer dependencies
-bun add @roastery/terroir typescript
+Importing the terroir symbols directly (`import { Storage } from "@roastery/terroir/symbols"`) works off the transitive install, but add it explicitly if your code reaches for terroir on its own:
+
+```bash
+bun add @roastery/terroir
 ```
 
 ### Local development (link)
@@ -183,7 +187,7 @@ bun link @roastery/beans
 import {
   blueprint, entityOf,
   defineDomainEvent, defineUseCase,
-  defineEventHandler, eventedRegistry,
+  defineEventHandler, commandRegistry, eventedRegistry,
 } from "@roastery/beans/way";
 import { StringVO } from "@roastery/beans/way/collections/value-objects";
 
@@ -218,6 +222,20 @@ const registry = eventedRegistry({ plantBean: PlantBean }, emitter)
 const { result } = await registry.get("plantBean")({ name: "Arabica" });
 ```
 
+### Start without events
+
+`eventedRegistry` takes a **required** `IEventEmitter`, which means the last step above asks you to decide where events go before you have anywhere to send them. That is a real step to climb on a path whose whole point is a gentle slope, so `way` exports the events-free registry too:
+
+```typescript
+import { commandRegistry } from "@roastery/beans/way";
+
+const registry = commandRegistry({ plantBean: PlantBean }).withDependencies({ beans });
+
+const { result, events } = await registry.get("plantBean")({ name: "Arabica" });
+```
+
+Same spec, same `.get(key)` returning a ready-to-run function, same `CommandResult` — `events` and all. **Nothing is given up by starting here**: events are still raised by the aggregate and still collected into the result; what is opt-in is *publishing* them. `eventedRegistry` is built on `commandRegistry` and delegates construction and execution to it wholesale, so moving up later is a change of registry, not of use cases — the spec, the dependencies and every `defineUseCase` stay exactly as they are.
+
 **This is not a third layer.** `domain` and `application` are still the only two layers `beans` has — every name `@roastery/beans/way` (and its `/collections/*` subpath) exports is re-exported verbatim from its original home in one of them; nothing is reimplemented, and the barrel has no behaviour of its own. It's a curated cross-cutting index, picking only the entries whose whole design goal was already minimizing ceremony:
 
 | Concern | From `@roastery/beans/way` | The precise form underneath |
@@ -228,9 +246,9 @@ const { result } = await registry.get("plantBean")({ name: "Arabica" });
 | A domain event | `defineDomainEvent` | `class X extends DomainEvent` + `defineName()` |
 | A use case | `defineUseCase` | `AggregateCommand`/`aggregateCommandOf`/`Command` — reach here directly once a use case needs more than one aggregate as its result |
 | React to an event | `defineEventHandler` | `class X implements IEventHandler<Event, Deps>` |
-| Wire it all up | `eventedRegistry` | `commandRegistry` (no event publishing/reactions) |
+| Wire it all up | `commandRegistry` (no events) or `eventedRegistry` (publishes + runs reactions) | (same — both already live in `application`; `way` only shortens the path) |
 
-The value-object catalog lives one level deeper, at `@roastery/beans/way/collections/value-objects` (plus `/optional`, `/nullable`, `/custom`) rather than in the root of `way` itself — flattened into the same barrel as `blueprint`/`entityOf`/`defineUseCase`, its ~45 names would drown the half-dozen that actually shape how a feature is put together. Same split `domain`/`application` already draw for their own catalogs, one level down.
+The value-object catalog lives one level deeper, at `@roastery/beans/way/collections/value-objects` (plus `/optional`, `/nullable`, `/custom`) rather than in the root of `way` itself — flattened into the same barrel as `blueprint`/`entityOf`/`defineUseCase`, its ~75 names would drown the half-dozen that actually shape how a feature is put together. Same split `domain`/`application` already draw for their own catalogs, one level down.
 
 Reach past this barrel, into the specific subpath named on the right, the moment a use case stops fitting this shape — its result isn't a single aggregate, or the behaviour touches more than one — or an entity's definition needs to be computed rather than stated. Every one of those escape hatches is documented in full under its own section below.
 
@@ -271,7 +289,7 @@ const post = new Post({ title: "Hello", slug: "Hello World" });
 post.title;                  // "Hello" — accessor derived from the blueprint
 post.slug;                   // "hello-world" — the VO's transform ran
 post.id;                     // UUID v7, generated by the base
-post.rename("Hi");           // validates, replaces, stamps updatedAt; → true if it changed
+post.rename("Hi");           // validates, replaces, stamps updatedAt (set returns true if it changed)
 post.toJSON();               // plain object
 Post.fromJSON(row);          // strict static hydration, identity preserved
 Post.demo();                 // fixture without data — every VO on its default
@@ -348,7 +366,7 @@ A key backed by an [`Optional*VO`](#optional--nullable-value-objects) (or any `o
 
 Two phases (`blueprint(…).with(…)`) because a literal cannot reference its own `typeof`: the first call fixes the shape, which is what makes `raw` fully typed inside `with`. A blueprint with no rules stays a plain object literal, exactly as before.
 
-> **Where the `Rules` symbol lives.** Unlike the slots below, it is declared in this package for now (`src/entity/rules.symbol.ts`) and moves to `@roastery/terroir/symbols` in terroir 0.2.1 — see `docs/terroir-rules-slot.md`.
+> **Where the `Rules` symbol lives.** In `@roastery/terroir/symbols`, exactly like the other slots below — terroir 0.2.1 ships it, so this package declares no symbol of its own. `grep -rn 'Symbol("' src` returns nothing, and it must stay that way: symbol equality is by reference, so a local redeclaration would key a *different* slot and every rule would silently stop resolving.
 
 ### Slot symbols
 
@@ -393,6 +411,7 @@ The storage API is intentionally minimal:
 | `get(key)` | Returns the value, or `null` if the key does not exist (or a fallback's result, with the two-argument overload) |
 | `set(key, value)` | Stores a value under the given key and returns it |
 | `del(key)` | Removes the entry for the given key |
+| `clear()` | Drops every entry — what `destroy()` calls to release the transient state |
 
 ### Domain events
 
@@ -547,18 +566,17 @@ new User({ id, createdAt, name: "..." }); // raises nothing either — same rule
 
 ### Method decorators
 
-Three method decorators, from the same `@roastery/beans/domain/entity/decorators` subpath, raise an event around an **arbitrary instance method** — not a fixed lifecycle point like the three decorators above, any business operation. `beforeHandle`/`afterHandle` raise immediately before or after the method runs; `onError` raises only if it throws.
+Two method decorators, from the same `@roastery/beans/domain/entity/decorators` subpath, raise an event around an **arbitrary instance method** — not a fixed lifecycle point like the three decorators above, any business operation. They cover the two outcomes a method has: `emit` raises once it has run to completion, `onError` raises only if it throws.
 
 ```typescript
-import { beforeHandle, afterHandle, onError, fromClass } from "@roastery/beans/domain/entity/decorators";
+import { emit, onError, fromClass } from "@roastery/beans/domain/entity/decorators";
 
 class Order extends Entity<typeof orderProperties> {
   protected defineEntity(): EntityDefinition<typeof orderProperties> {
     return { properties: orderProperties, source: "order" };
   }
 
-  @beforeHandle(OrderShippingStarted)
-  @afterHandle(OrderShippingCompleted)
+  @emit(OrderShipped)
   public ship(): void {
     // business logic
   }
@@ -574,17 +592,17 @@ class Order extends Entity<typeof orderProperties> {
   }
 }
 
-order.ship();       // raises OrderShippingStarted, runs ship(), then raises OrderShippingCompleted
+order.ship();        // runs ship(), then raises OrderShipped
 order.shipOrAbort(); // if it throws: raises a fresh OrderShippingFailed, then re-throws
 order.shipOrFail();  // if it throws: raises OrderShippingFailed built from the error, then re-throws
 ```
 
-- **`beforeHandle`** fires immediately before the method body runs.
-- **`afterHandle`** fires immediately after the method body returns — **never** if it throws; there is no `try`/`catch`, so a thrown exception simply propagates and the event never raises.
+- **`emit`** fires once the method body has returned — **never** if it throws; there is no `try`/`catch`, so a thrown exception simply propagates and the event never raises. The event is a consequence of the operation having succeeded, which is why there is no "before" counterpart: an event raised before the work happens claims a domain fact that may not turn out to be one.
+- **`emit` does not publish.** `emit` is also the one member of `IEventEmitter`, one layer up, where it *does* mean "publish onto the bus". The decorator only raises into the entity's own buffer, which leaves through `pullDomainEvents` — same word, different layer, different contract.
 - **`onError`** fires only if the method body throws — it wraps the call in a `try`/`catch`, raises the event, then **always re-throws the original error**. It never swallows the failure; the event is a side channel only. A different `onError` from `eventedRegistry`'s own (see [Evented Registry](#evented-registry)), which isolates a throwing *reaction* by swallowing it — this one wraps an `Entity` method and never swallows.
 - **`onError` accepts either a bare class (`@onError(SomeEvent)`, the same payload-less form the other four decorators take) or a factory (`@onError((error) => ...)`, for an event that folds the caught error into its own payload).** A bare class is normalized internally through `fromClass` — exported on its own for the times that factory value is needed detached from the decorator call. Reach for the factory only when the event actually needs the error.
-- Stacking `beforeHandle`/`afterHandle` on the same method always raises in **before → method → after** order, regardless of which decorator is written closer to the method. `onError` composes the same bracket-nesting way: stacked innermost under `beforeHandle`/`afterHandle`, a throw still raises `beforeHandle`'s event and `onError`'s event, but `afterHandle`'s never fires — same "never fires on a throw" rule it already has on its own.
-- None of the three `await` a returned `Promise` — an `async` method's `afterHandle`/`onError` react once the synchronous call returns (or synchronously throws), not once the promise settles or rejects.
+- **`emit` and `onError` on the same method are mutually exclusive per call**, by construction: a clean run reaches only `emit`'s raise, a throw reaches only `onError`'s. Two stacked `emit`s both fire, the one written closest to the method first — TC39 applies method decorators bottom-up, so it wraps innermost.
+- Neither `await`s a returned `Promise` — an `async` method's `emit`/`onError` react once the synchronous call returns (or synchronously throws), not once the promise settles or rejects.
 - Applies to instance methods only; decorating a `static` method is not guarded at compile time or runtime.
 
 ---
@@ -621,15 +639,23 @@ Key rules:
 
 ### Value Objects
 
-One VO per primitive, all on the self-validating base:
+One VO per primitive, all on the self-validating base. The numeric family is a grid of three shapes (`Number`, `Integer`, `Double`) crossed with three signs (unconstrained, `Positive*`, `Negative*`); `Positive*` and `Negative*` both **include zero**, so they read as "non-negative" and "non-positive" and overlap at exactly one value:
 
 | Class | Value type | Description |
 |-------|------------|-------------|
 | `BooleanVO` | `boolean` | Boolean with `truthy()`, `falsy()`, `from()` helpers |
 | `DateTimeVO` | `string` | ISO 8601 datetime with `now()` factory |
+| `DoubleVO` | `number` | Decimal of either sign — rounds to 2 places (`transform`) |
 | `EmailVO` | `string` | Email address |
-| `NumberVO` | `number` | Non-negative number |
+| `IntegerVO` | `number` | Whole number of either sign — truncates toward zero (`transform`) |
+| `NegativeDoubleVO` | `number` | Decimal `<= 0`, rounded to 2 places |
+| `NegativeIntegerVO` | `number` | Whole number `<= 0` |
+| `NegativeNumberVO` | `number` | Number `<= 0` |
+| `NumberVO` | `number` | Number of any sign |
 | `PasswordVO` | `string` | Password with complexity rules |
+| `PositiveDoubleVO` | `number` | Decimal `>= 0`, rounded to 2 places |
+| `PositiveIntegerVO` | `number` | Whole number `>= 0` |
+| `PositiveNumberVO` | `number` | Number `>= 0` |
 | `SimpleUrlVO` | `string` | URI of any protocol |
 | `SlugVO` | `string` | Auto-slugified string (`transform`) |
 | `StringVO` | `string` | String of any length — no `minLength` |
@@ -687,14 +713,18 @@ The catalog above covers the primitives, not the domain's constraints. When a pr
 ```typescript
 import {
   customArrayVO,
+  customBinaryVO,
+  customDoubleVO,
   customEnumVO,
   customNumberVO,
   customRecordVO,
   customStringVO,
+  encodeBase64,
   nullableVO,
   optionalVO,
+  unionVO,
 } from "@roastery/beans/domain/collections/value-objects/custom";
-import { UuidSchema } from "@roastery/beans/domain/collections/schemas";
+import { NumberSchema, StringSchema, UuidSchema } from "@roastery/beans/domain/collections/schemas";
 
 const postProperties = {
   title: customStringVO({ options: { minLength: 4, maxLength: 120 }, default: "untitled" }),
@@ -704,19 +734,26 @@ const postProperties = {
   subtitle: optionalVO(StringSchema),   // may be `undefined`, key becomes optional
   deletedAt: nullableVO(UuidSchema),    // may be `null`, key stays required
   metadata: customRecordVO(),
+  document: unionVO([StringSchema, NumberSchema], { default: "" }), // string *or* number
+  cover: customBinaryVO({ options: { maxBytes: 1_048_576 } }),      // base64 payload
 };
+
+new Post({ cover: encodeBase64(pngBytes) }); // bytes in, at the call site
 ```
 
 | Factory | Wrapped value | Options | Default when omitted |
 |---------|---------------|---------|----------------------|
 | `customStringVO(args?)` | `string` | `t.StringOptions` — `minLength`, `maxLength`, `pattern`, `format` | `"string"` |
 | `customNumberVO(args?)` | `number` | `t.NumberOptions` — `minimum`, `maximum`, `multipleOf` | `0` |
+| `customDoubleVO(args?)` | `number` | `t.NumberOptions` plus `decimals` (default `2`) — rounds via `transform` | `0` |
 | `customArrayVO(items, args?)` | `Static<items>[]` | `t.ArrayOptions` — `minItems`, `maxItems`, `uniqueItems` | `[]` |
 | `customEnumVO(values, args?)` | one of `values` | `t.SchemaOptions` — `values` is a `const` tuple, no `as const` needed | `values[0]` |
 | `customObjectVO(properties, args)` | the declared shape | `t.ObjectOptions` | — **required** |
 | `customRecordVO(args?)` | `Record<string, unknown>` | `t.ObjectOptions` | `{}` |
 | `optionalVO(schema, args?)` | `Static<schema> \| undefined` | `t.SchemaOptions` — wraps `schema` in `t.Union([schema, t.Undefined()])` | `undefined` |
 | `nullableVO(schema, args?)` | `Static<schema> \| null` | `t.SchemaOptions` — wraps `schema` in `t.Union([schema, t.Null()])` | `null` |
+| `unionVO(schemas, args)` | `Static<schemas[number]>` | `t.SchemaOptions` — `schemas` is a `const` tuple of two or more | — **required** |
+| `customBinaryVO(args?)` | `string` (base64) | `t.StringOptions` plus `minBytes` / `maxBytes` | `""` (empty payload) |
 | `defineValueObject(args)` | whatever the schema says | takes a ready `schema` instead | — **required** |
 
 Every factory accepts the same hooks: `default` (value or thunk), `name` (stamped onto the class, for stack traces), `transform(value)` and `validate(value, context)`. The `validate` hook is a **predicate** running after the schema has already accepted the transformed value; returning `false` raises `InvalidPropertyException` with the owning entity's `name`/`source`, and throwing from inside propagates untouched.
@@ -742,6 +779,8 @@ Key rules:
 - **`customObjectVO` requires an explicit `default`.** No placeholder can satisfy an arbitrary set of required properties, so it asks rather than guesses.
 - **`customObjectVO` sets `additionalProperties: false`**, matching how `Entity` emits every level of its aggregate model. Pass `options: { additionalProperties: true }` to opt out.
 - **`customEnumVO`'s `values` is a `const` type parameter**, so `["draft", "published"]` is read as its literal tuple type without `as const` at the call site. The schema is built with TypeBox's native `t.Enum`, not a hand-rolled `t.Union` of `t.Literal`s.
+- **`unionVO` requires an explicit `default` too**, for the same reason `customObjectVO` does: there is no placeholder a union of arbitrary schemas could fall back to. `optionalVO` and `nullableVO` are its two specialised forms — reach for those when the extra member is exactly `undefined` or `null`, and for `unionVO` when the alternatives are genuine domain values (`document: string | number`). A `t.Undefined()` member makes the key omittable, exactly as `optionalVO` does.
+- **`customBinaryVO` stores base64, not a `Uint8Array`**, and that is a correctness decision rather than a convenience one: `toJSON()` emits each value-object's value as-is, so a `Uint8Array` would come out of `JSON.stringify` as `{"type":"Buffer","data":[…]}` and `fromJSON` would reject it — the round-trip guarantee would break on the one property that most needs to persist. Convert at the call site with the `encodeBase64` / `decodeBase64` helpers the same subpath exports (built on the Web-standard `btoa`/`atob`, so `domain/` never imports a Node builtin). `minBytes`/`maxBytes` are checked against the **exact** decoded size, not lowered into `minLength`/`maxLength` — a four-character base64 group carries one, two or three bytes, so a length-derived bound would let up to two extra bytes through.
 - **`optionalVO`'s blueprint key becomes optional in the constructor payload**; `nullableVO`'s does not. `undefined` extends "not provided" and the runtime already read a missing key the same way; `null` is a value that has to be stated.
 - Importing anything from this subpath registers the custom string formats, so `customStringVO({ options: { format: "slug" } })` validates against a registered format.
 
@@ -753,9 +792,17 @@ Pre-built [TypeBox](https://github.com/sinclairzx81/typebox) definitions for com
 |--------|-------------|
 | `BooleanSchema` | Boolean |
 | `DateTimeSchema` | ISO 8601 date-time |
+| `DoubleSchema` | Decimal of either sign |
 | `EmailSchema` | Email address |
-| `NumberSchema` | Non-negative number |
+| `IntegerSchema` | Whole number of either sign (`type: "integer"`) |
+| `NegativeDoubleSchema` | Decimal `<= 0` |
+| `NegativeIntegerSchema` | Whole number `<= 0` |
+| `NegativeNumberSchema` | Number `<= 0` |
+| `NumberSchema` | Number of any sign |
 | `PasswordSchema` | Password (min 7 chars, uppercase, lowercase, digit, special) |
+| `PositiveDoubleSchema` | Decimal `>= 0` |
+| `PositiveIntegerSchema` | Whole number `>= 0` |
+| `PositiveNumberSchema` | Number `>= 0` |
 | `SimpleUrlSchema` | URL with any protocol |
 | `SlugSchema` | URL slug |
 | `StringArraySchema` | Array of strings |
@@ -961,7 +1008,7 @@ interface IEventEmitter {
 Adapting a bus to it is one method, with no subscription logic — `eventedRegistry` never delegates `.on()` to the emitter (see below). For Node's own `EventEmitter` you don't even write that one: `NodeEventEmitterAdapter` ships, and its `inner` emitter is public, which is how you subscribe.
 
 ```typescript
-import { NodeEventEmitterAdapter } from "@roastery/beans/testing";
+import { NodeEventEmitterAdapter } from "@roastery/beans/node";
 
 const emitter = new NodeEventEmitterAdapter(); // or pass a bus you already own
 
@@ -970,7 +1017,7 @@ emitter.inner.on("order.confirmed", (event) => console.log(event.aggregateId));
 const registry = eventedRegistry(spec, emitter).withDependencies(deps);
 ```
 
-It lives under `testing` to keep `node:events` out of the two layers, not because it only works in tests — an app whose host *is* Node can publish through it in production. It also special-cases one name: Node **throws** `ERR_UNHANDLED_ERROR` when `"error"` is emitted with no listener, which would reject the `CommandResult` of a command that actually succeeded, so the adapter skips that call instead (with zero listeners an emit is already a no-op, so nothing is lost). Any other bus is still your own three lines:
+It lives under `node` — its own subpath — to keep every `node:*` import out of the two layers, so `domain`/`application` stay usable from a worker or an edge function. It is production code, not a test helper: an app whose host *is* Node publishes through it. It also special-cases one name: Node **throws** `ERR_UNHANDLED_ERROR` when `"error"` is emitted with no listener, which would reject the `CommandResult` of a command that actually succeeded, so the adapter skips that call instead (with zero listeners an emit is already a no-op, so nothing is lost). Any other bus is still your own three lines:
 
 ```typescript
 class KafkaEmitter implements IEventEmitter {
@@ -1032,7 +1079,7 @@ import type {
   ICanReadId,
   ICanUpdate,
   RepositoryOf,
-  RepositoryPage,
+  RepositoryPageOf,
 } from "@roastery/beans/domain/repository/types";
 import { ResourceNotFoundException } from "@roastery/terroir/exceptions/application";
 
@@ -1052,7 +1099,7 @@ type UserRepository = RepositoryOf<
 class PrismaUserRepository implements UserRepository {
   async findById(value: string): Promise<User | null> { /* … */ }
   async findByEmail(value: string): Promise<User | null> { /* … */ }
-  async findMany(page: RepositoryPage): Promise<readonly User[]> { /* … */ }
+  async findMany(page: RepositoryPageOf<typeof User>): Promise<readonly User[]> { /* … */ }
   async create(entity: User): Promise<void> { /* … */ }
   async update(entity: User): Promise<void> { /* … */ }
 }
@@ -1093,13 +1140,15 @@ type UserRepository = RepositoryOf<typeof User, {
 Key rules:
 
 - **Nothing here runs.** The pillar is types only — no factory, no symbol, no runtime, not one byte emitted. Everything below is resolved by the compiler and gone by the time the code executes.
-- **The catalog is derived from the blueprint, and only from it.** A value-object-backed key generates `findBy{Key}` and `findManyBy{Key}`; the three identity fields (`id`, `createdAt`, `updatedAt`) come along for free, which is why `findById` needs no special case. A key backed by a **nested entity** generates nothing — a repository filters by the `UuidVO` that *references* an aggregate, not by the aggregate itself.
-- **Only the flat spec form gets editor completions, and that's the compiler, not a choice.** Typing `RepositoryOf<typeof User, "` lists all 15 names and drops the ones already written; `read: ["` inside the grouped form lists nothing, because TypeScript offers string-literal suggestions only for a literal in a *direct* type-argument position. Both forms reject an unknown name with `TS2344` naming the offending literal, and hovering `RepositoryReadMethodsOf<typeof User>` expands the catalog when the editor won't.
+- **The catalog is derived from the blueprint, and only from it.** A value-object-backed key generates `findBy{Key}`, `findManyBy{Key}`, `countBy{Key}` and `existsBy{Key}`; the three identity fields (`id`, `createdAt`, `updatedAt`) come along for free, which is why `findById` needs no special case. A key backed by a **nested entity** generates nothing — a repository filters by the `UuidVO` that *references* an aggregate, not by the aggregate itself. A key whose value-object declared itself **sensitive** generates nothing either, for the other reason: a port must not offer a lookup *by* the secret it exists to hide (see [Sensitive values](#sensitive-values)).
+- **Only the flat spec form gets editor completions, and that's the compiler, not a choice.** Typing `RepositoryOf<typeof User, "` lists all 24 names a two-key entity derives and drops the ones already written; `read: ["` inside the grouped form lists nothing, because TypeScript offers string-literal suggestions only for a literal in a *direct* type-argument position. Both forms reject an unknown name with `TS2344` naming the offending literal, and hovering `RepositoryReadMethodsOf<typeof User>` expands the catalog when the editor won't.
 - **`ICan*` is what a use case asks for; `RepositoryOf` is what an adapter implements.** That asymmetry is the point of splitting them: `ICanReadId<typeof User> & ICanUpdate<typeof User>` in a `Deps` slot says exactly what the command is allowed to do, and the type system makes `delete` unavailable rather than merely discouraged.
-- **Every collection read is bounded.** `findMany` and `findManyBy*` take a required `RepositoryPage` (`{ page, perPage }`), so an unbounded `SELECT *` is not expressible through a generated port. `beans` declares no default page size — what a sane `perPage` is belongs to the application. `findManyByIds` is the exception, and takes no page: `ids` already bounds it, and it is order-preserving (same length, same positions, `null` where there was no match — the DataLoader contract).
+- **Every collection read is bounded *and* ordered.** `findMany` and `findManyBy*` take a required `RepositoryPageOf<typeof User>` (`{ page, perPage, orderBy, direction }`), so neither an unbounded `SELECT *` nor an indeterminate page is expressible through a generated port. `beans` declares no default page size and no default order, for the same reason: a page is a slice, and a slice of an unordered set can repeat or skip a row between two calls — which the in-memory double hides and a real database does not. `findManyByIds` is the exception, and takes neither: `ids` already bounds it *and* fixes the order, since it is order-preserving (same length, same positions, `null` where there was no match — the DataLoader contract).
+- **`orderBy` is narrower than the filter keys, on purpose.** It resolves to `RepositoryOrderKeysOf`, which keeps only the keys carrying a single scalar. A `StringArrayVO` or a `customObjectVO` key is perfectly filterable — equality is well defined for it — but has no total order in JavaScript or in `jsonb`, so `orderBy: "tags"` is a compile error rather than an order that differs per adapter. A key whose value-object is sensitive is absent here too, inherited from the filter set.
+- **`countBy{Key}` and `existsBy{Key}` come out of the same generator.** `count()` takes no filter, so a filtered list would have no total; `countByAuthorId(id)` is what tells a paginated screen how many pages exist. `existsBy{Key}` is the check every `create` guarding a `unique` key already makes — without it the adapter emulates it with `findBy` and throws the hydrated entity away. The two differ over `id` alone: `existsById` exists (it is the primary-key check), `countById` does not (its answer is always 0 or 1). Both inherit the sensitive-key suppression, and both halves are closed against `Extras` as well — `existsByPassword` leaks the secret one bit at a time, which is exactly the shape a suppression covering only `find*` would have let through.
 - **Domain objects on both ends.** Reads resolve to entity *instances*, writes take them. Crossing to whatever the storage engine wants is the adapter's job, with `toJSON`/`fromJSON` as its tools — that boundary moved nowhere. Writes resolve to `void`: handing back a different instance would silently discard the domain events buffered on the one the caller still holds.
 - **Mode is available as a filter *and* as a projection.** `RepositoryOf<…, Spec, "read">` builds a port that never had a `create`; `ReaderOf<Repository>` narrows one that already exists, including a hand-written one. `WriterOf` is defined as the complement, so an unrecognised method (`archive`) counts as a write rather than disappearing from both halves.
-- **The last parameter is yours, and unchecked.** `RepositoryOf<typeof User, Spec, RepositoryMode, { findByEmailDomain(domain: string, page: RepositoryPage): Promise<readonly User[]> }>` folds hand-written methods into the port verbatim. `beans` can't derive them from a blueprint, so it doesn't pretend to validate them — the generated half is proven against the model, the extra half is your word. Reaching it with the default mode means spelling `RepositoryMode` out.
+- **The last parameter is yours, and unchecked.** `RepositoryOf<typeof User, Spec, RepositoryMode, { findByEmailDomain(domain: string, page: RepositoryPageOf<typeof User>): Promise<readonly User[]> }>` folds hand-written methods into the port verbatim. `beans` can't derive them from a blueprint, so it doesn't pretend to validate them — the generated half is proven against the model, the extra half is your word. Reaching it with the default mode means spelling `RepositoryMode` out.
 - **An empty selection resolves to `never`, deliberately.** Asking for the write half of a read-only spec is a mistake, and `never` in a `Deps` slot makes it a compile error at the call site rather than a constraint that quietly switched itself off. Extras given alongside still survive on their own.
 - **The generic `findBy(property, value)` is dead.** A single catch-all lookup can't be typed, which is what forced `repository.findBy("slug" as never, id as never)` on its callers. Here the property *is* the method name and its value type comes from the blueprint, so neither argument needs a cast.
 
@@ -1110,8 +1159,8 @@ The same blueprint that generates the contract generates a working implementatio
 ```typescript
 import { inMemoryRepositoryOf } from "@roastery/beans/testing";
 
-// Everything the blueprint derives — findById, findByEmail, findManyByName,
-// findMany, findManyByIds, count, create, update, delete
+// Everything the blueprint derives — findBy*/findManyBy*/countBy*/existsBy*
+// per key, plus findMany, findManyByIds, count, create, update, delete
 const users = inMemoryRepositoryOf(User);
 
 // Only what this test needs; the rest is absent from the type *and* the object
@@ -1148,7 +1197,7 @@ Key rules:
 - **It is faithful, not convenient.** Rows are stored as `toJSON()` and rehydrated with `fromJSON` on every read, so mutating an entity after `create` does **not** change what's stored — only `update()` does. That catches the "forgot to call update" bug instead of hiding it. The price: a read returns an equal but distinct instance with empty `[Events]`/`[Storage]`, so compare with `toEqual` or on `id` — `toBe` will not hold.
 - **The handler's methods are merged over the generated ones**, and `context` is a snapshot taken beforehand — which is what lets a replacement delegate to the original, as `findById` does above. Stubbing one method to throw is a routine thing for a double to want.
 - **Filtering compares with `deepEquals`.** A `StringArrayVO` key serializes to an array, and `===` would never match a freshly built one — silently, which is the worst way for a double to fail.
-- **`findMany` returns insertion order.** The port promises no ordering (no two adapters would agree on one), so a test depending on this order is testing the double rather than the code.
+- **`findMany` sorts before it slices**, exactly as the port demands: it orders by the page's `orderBy`/`direction`, breaks every tie by `id`, and only then takes the window. A page is therefore repeatable rather than merely stable within one call — the failure a `Map`-backed double would have hidden and a real database would not.
 
 ### Write guarantees
 
@@ -1179,12 +1228,17 @@ All four throw from `@roastery/terroir/exceptions/infra`, the layer an adapter's
 A value-object declares itself secret once, and every class that uses it inherits the fact:
 
 ```typescript
-class ApiTokenVO extends ValueObject<string, typeof StringSchema> {
-  protected defineMeta(): IValueObjectMetadata<string, typeof StringSchema> {
+class ApiTokenVO extends ValueObject<string, typeof StringSchema, true> {
+  protected defineMeta(): IValueObjectMetadata<string, typeof StringSchema, true> {
     return { default: "token", schema: StringSchema, sensitive: true };
   }
 }
+
+// or inline, through any custom-VO factory — the literal is inferred, no ceremony
+const ApiKeyVO = customStringVO({ sensitive: true });
 ```
+
+**The third type parameter is not optional ceremony.** `defineMeta` is `protected` and only ever invoked at runtime, so a plain `sensitive: boolean` told the compiler nothing. Carrying the literal is what makes the declaration readable at the type level — and omitting it while writing `sensitive: true` is a compile error (`TS2322`), not a flag that quietly does half its job.
 
 `PasswordVO` from the catalog already carries it. Where that lands differs by pillar, and the split is the point:
 
@@ -1218,6 +1272,14 @@ protected defineEntity(): EntityDefinition<typeof accountProperties> {
 }
 ```
 
+> **The two are not interchangeable, and the difference is a security one.** Only the
+> first — `sensitive: true` on the value-object — **removes that key's lookup methods
+> from the repository port**. The per-aggregate `sensitive: ["token"]` list redacts and
+> answers `isSensitive`, but a `findByToken` is still derived, still implementable, and
+> still callable. When a key must be unreachable *as a filter*, give it a value-object
+> that declares itself sensitive. See [It also shapes the repository port](#it-also-shapes-the-repository-port)
+> for the table and the reason the two differ.
+
 And two decide **how**, the more specific winning:
 
 ```typescript
@@ -1237,13 +1299,55 @@ const MaskedEmailVO = customStringVO({
 
 The placeholder function receives `(value, context)` — the real value plus the field's `{ name, source }`. Getting the value is what makes *masking* possible rather than only erasing; the parameter order mirrors the `validate` hook. A ready value and a function are told apart by `typeof`, the same discriminant `meta.default` uses for its thunk form — so a placeholder that is itself a function cannot be expressed.
 
+### Reading the declaration
+
+```typescript
+account.isSensitive("password");  // true  — PasswordVO declared it
+account.isSensitive("token");     // true  — the definition named it
+account.isSensitive("email");     // false
+account.isSensitive("id");        // false — an identifier is not a secret
+```
+
+`isSensitive` mirrors `isUnique` in shape, and diverges in one place on purpose: `isUnique("id")` is always `true` (identity is the primary key), while `isSensitive("id")` is always `false` — an id is what makes a log *useful*. Like `isUnique`, it throws `InvalidPropertyException` for a key outside the blueprint rather than answering `false`, so a typo cannot read as "not a secret". And it reports the declaration only: the value stays readable through `get` and lossless through `toJSON`.
+
+### It also shapes the repository port
+
+A sensitive value-object **suppresses that key's lookup methods** in any `RepositoryOf` derived from a blueprint holding it:
+
+```typescript
+const userProperties = { email: EmailVO, password: PasswordVO };
+
+type Users = RepositoryOf<typeof User, "findByEmail" | "create">;  // fine
+type Bad = RepositoryOf<typeof User, "findByPassword">;            // compile error
+```
+
+Neither `findByPassword` nor `findManyByPassword` is generated, and `inMemoryRepositoryOf(User)` does not produce them at runtime either. A port that offered a lookup *by* the secret would invite exactly the query the declaration exists to prevent. Writes are untouched — `create`/`update` still persist the value; suppression is about **lookup**, not storage.
+
+The `Extras` slot is closed too, which is what makes this a rule rather than a naming convention — a hand-written extra, or an `inMemoryRepositoryOf` handler, cannot put the name back:
+
+```typescript
+inMemoryRepositoryOf(User, [], (ctx) => ({
+  findByPassword: async (v: string) => …,  // compile error
+  findByNameOrEmail: async (v: string) => …, // fine — any other name still works
+}));
+```
+
+**Only the value-object source suppresses.** The two declaration sources are interchangeable for redaction and for `isSensitive`, but not here:
+
+| Declared by | Redacts | `isSensitive()` | Suppresses from the port |
+|---|---|---|---|
+| `sensitive: true` on a value-object's `defineMeta` | yes | `true` | **yes** |
+| `sensitive: ["token"]` on `defineEntity` / `entityOf` | yes | `true` | **no** |
+
+The per-aggregate list is a *value*, and its literal does not survive into the class type: `entityOf` takes its third argument without a `const` type parameter, and the hand-written `defineEntity` form loses it at the return annotation. Making one form suppress and not the other would break the equivalence the two are deliberately held to. Reach for a dedicated value-object when a key must disappear from the port.
+
 ---
 
 ## Unique values
 
 Uniqueness is the one invariant an entity carries and structurally cannot check: it is a property of the *set* of stored rows, and an instance only ever sees itself. So `beans` splits it in two — the model **declares** it, the repository **enforces** it.
 
-A value-object declares itself unique once, and every blueprint using it inherits the fact — the exact shape `sensitive` already has:
+A value-object declares itself unique once, and every blueprint using it inherits the fact — the same shape `sensitive` has, minus the type parameter: nothing at the type level reads `unique`, so it stays a plain `boolean` and suppresses nothing from the repository port.
 
 ```typescript
 class ExternalIdVO extends ValueObject<string, typeof StringSchema> {
@@ -1315,6 +1419,10 @@ A `Command` never gains any of this: it is never persisted, so there is no set o
 // Root barrel: the base classes, plus blueprint and DomainEvent alongside them
 import { blueprint, Command, DomainEvent, Entity, ValueObject } from "@roastery/beans";
 
+// Redaction is a package-wide switch, so it lives at the root rather than in a pillar
+import { configureRedaction, redactionConfig } from "@roastery/beans";
+import type { IRedactionConfig, RedactionPlaceholder, RedactionPlaceholderFn } from "@roastery/beans";
+
 // Application layer's own root barrel — AggregateCommand isn't reachable from the package root above
 import { AggregateCommand, Command as ApplicationCommand, commandRegistry } from "@roastery/beans/application";
 
@@ -1324,7 +1432,7 @@ import { Context, Demo, Events, Meta, Properties, Rules, Source, Storage } from 
 // The Roastery Way: one import path for the low-ceremony subset of everything below
 import {
   blueprint as wayBlueprint, entityOf, defineDomainEvent, defineUseCase,
-  defineEventHandler, eventedRegistry,
+  defineEventHandler, commandRegistry as wayCommandRegistry, eventedRegistry,
 } from "@roastery/beans/way";
 import type { IEventEmitter as WayIEventEmitter, RepositoryOf as WayRepositoryOf } from "@roastery/beans/way";
 
@@ -1335,9 +1443,11 @@ import { NullableStringVO, NullableUuidVO } from "@roastery/beans/way/collection
 import { customStringVO, defineValueObject as wayDefineValueObject } from "@roastery/beans/way/collections/value-objects/custom";
 
 // Entity subpaths
-import { deepEquals, entityHas, generateUUID } from "@roastery/beans/domain/entity/helpers";
+import { blueprint as entityBlueprint, deepEquals, entityHas, entityOf, generateUUID, uniqueKeysOf } from "@roastery/beans/domain/entity/helpers";
 import type {
   AccessorsOf,
+  BlueprintBuilder,
+  EntityClassOf,
   EntityDefinition,
   EntityHas,
   EntityHasShapeBase,
@@ -1350,7 +1460,7 @@ import type {
   RulesOf,
   SerializedEntity,
 } from "@roastery/beans/domain/entity/types";
-import { onCreate, onUpdate, onDelete, beforeHandle, afterHandle, onError, fromClass } from "@roastery/beans/domain/entity/decorators";
+import { onCreate, onUpdate, onDelete, emit, onError, fromClass } from "@roastery/beans/domain/entity/decorators";
 import type { BareDomainEventClass, EntityErrorEventFactory } from "@roastery/beans/domain/entity/decorators/types";
 
 // DomainEvent subpaths — DomainEvent itself is also at the root barrel above
@@ -1359,7 +1469,7 @@ import type { DomainEventClassOf, IDomainEvent } from "@roastery/beans/domain/do
 
 // ValueObject subpaths
 import { metaOf } from "@roastery/beans/domain/value-object/helpers";
-import type { IValueObjectContext, IValueObjectMetadata } from "@roastery/beans/domain/value-object/types";
+import type { IValueObjectContext, IValueObjectMetadata, ValueObjectClassLike } from "@roastery/beans/domain/value-object/types";
 
 // Repository subpath — type-only, so `types` is the canonical path and there is no barrel above it
 import type {
@@ -1370,6 +1480,8 @@ import type {
   ICanReadId,
   ICanReadMany,
   ICanReadManyBy,
+  ICanCountBy,
+  ICanExistsBy,
   ICanReadManyByIds,
   ICanUpdate,
   IEntityReader,
@@ -1383,21 +1495,27 @@ import type {
   RepositoryMethodsOf,
   RepositoryMode,
   RepositoryOf,
-  RepositoryPage,
+  RepositoryOrderKeysOf,
+  RepositoryPageOf,
   RepositoryReadMethodsOf,
+  RepositorySensitiveKeysOf,
   RepositorySpecOf,
+  RepositorySuppressedNamesOf,
   RepositoryWriteMethods,
   WriterOf,
 } from "@roastery/beans/domain/repository/types";
 
-// Testing — the doubles and adapters, kept out of the two layers on purpose
-import { inMemoryRepositoryOf, NodeEventEmitterAdapter } from "@roastery/beans/testing";
+// Testing — the double, kept out of the two layers on purpose
+import { inMemoryRepositoryOf } from "@roastery/beans/testing";
 import type {
   InMemoryRepositoryContext,
   InMemoryRepositoryHandler,
   InMemoryRepositorySpecOf,
   InMemorySpecNamesOf,
 } from "@roastery/beans/testing/types";
+
+// Node — every `node:*` import in the package lives behind this one subpath
+import { NodeEventEmitterAdapter } from "@roastery/beans/node";
 
 // Collections (one barrel per kind)
 import { SlugVO, UuidVO } from "@roastery/beans/domain/collections/value-objects";
@@ -1406,18 +1524,24 @@ import { OptionalStringVO, OptionalUuidVO } from "@roastery/beans/domain/collect
 import { NullableStringVO, NullableUuidVO } from "@roastery/beans/domain/collections/value-objects/nullable";
 import {
   customArrayVO,
+  customBinaryVO,
   customEnumVO,
   customNumberVO,
   customObjectVO,
   customRecordVO,
   customStringVO,
+  decodeBase64,
   defineValueObject,
+  encodeBase64,
   nullableVO,
   optionalVO,
+  unionVO,
 } from "@roastery/beans/domain/collections/value-objects/custom";
 import type {
+  IBinaryValueObjectOptions,
   ICustomValueObjectArgs,
   IDefineValueObjectArgs,
+  IDoubleValueObjectArgs,
   IValueObjectHooks,
   ValueObjectClassOf,
 } from "@roastery/beans/domain/collections/value-objects/custom/types";
@@ -1425,7 +1549,9 @@ import type {
 // Command subpaths
 import { aggregateCommandOf, collectDomainEvents, collectResult, commandOf, defineUseCase } from "@roastery/beans/application/command/helpers";
 import type {
+  AggregateCommandClassOf,
   CommandAccessorsOf,
+  CommandClassOf,
   CommandDefinition,
   CommandPropertiesShapeBase,
   CommandResult,
@@ -1470,6 +1596,26 @@ import type { ValueObjectClassOf as ApplicationValueObjectClassOf } from "@roast
 
 ---
 
+## Known limits
+
+Every item here is a consequence of a choice stated elsewhere in this README. They are collected in one place because that is where they are useful — spread across the section that introduced each one, they are only findable by someone who already knows what to look for.
+
+- **Events are published before anything is committed.** `eventedRegistry` publishes a `CommandResult`'s events as soon as the command resolves. There is no Unit of Work, so a use case writing two aggregates can have the first persisted, its event published, and the second write then fail — leaving a published event describing a state that was rolled back. Today the way to avoid it is to keep a command's writes to a single aggregate, which is what `AggregateCommand` already nudges towards. A transaction boundary, and publishing after it, is the shape that fixes this properly, and it is deliberately not in 0.4.0: it would require an opinion about scope and propagation that would reach into every command's `Deps`.
+
+- **The dependency gate is structural, not exact.** `execute` is written as method shorthand (matching `ICommand`), and TypeScript exempts method shorthand from `strictFunctionTypes`' contravariant parameter checking. A dependency record whose nested method-shaped member is only *bivariantly* compatible with what a command declares will satisfy `RegistrableKeys` without being a safe substitute. Not fixable from inside `commandRegistry` without changing `Command`/`ICommand` themselves.
+
+- **Sibling composition is proven one hop deep.** `deps.commands` lets a command call another, and the type only proves the first hop's dependencies are satisfied — there is no fixpoint proof at arbitrary depth. The runtime is unbounded, with `LoopDetectedException` (508) as the backstop when a chain revisits a key or an event name already on it. The same one-hop limit applies to `.on()`'s `RegistrableEventHandlerClass`.
+
+- **`findManyByIds` wins a blueprint key called `ids`.** The dispatcher tests the fixed names before falling through to the per-key generator, so an entity declaring `ids` loses `findManyByIds` to the batch loader rather than getting its own. Documented rather than engineered around; rename the key.
+
+- **The in-memory double does not preserve reference identity.** It stores `toJSON()` and rehydrates through `fromJSON` on every read, which is what makes it catch the "forgot to call `update`" bug instead of hiding it. The price is that `toBe` will not hold across a round trip, and `[Events]`/`[Storage]` come back empty.
+
+- **The double's ordering is JavaScript's, not a database's.** Strings compare by UTF-16 code unit, so a case or accent ordering that depends on a collation will differ from Postgres. A `customBinaryVO` key is a base64 string, so it is orderable and the order means nothing.
+
+- **`sensitive` has two declaration sites and only one closes the port.** `sensitive: true` on a value-object suppresses that key's lookup methods; `sensitive: ["token"]` on `defineEntity`/`entityOf` redacts and answers `isSensitive` but suppresses nothing. See [It also shapes the repository port](#it-also-shapes-the-repository-port) — the literal does not survive into the class type, and diverging would break the equivalence `entityOf` and the hand-written form are deliberately kept at.
+
+- **The accessor type merge is the one silent failure left.** In the hand-written class form, skipping `interface X extends AccessorsOf<…> {}` leaves the accessors working at runtime and invisible to the type system. `entityOf` removes the line, and with it the failure mode — everything else in the package fails loudly, with an exception naming the cause.
+
 ## Development
 
 ```bash
@@ -1487,7 +1633,12 @@ bun run knip
 
 # Full setup (build + bun link)
 bun run setup
+
+# Run the end-to-end dogfooding script (examples/user-flow.ts)
+bun run example
 ```
+
+Bun is pinned by **mise** (`mise.toml`), and the husky hooks go through it — so prefix any of the above with `mise exec --` if your shell isn't already using the pinned toolchain. `commit-msg` runs commitlint (Conventional Commits) and `pre-commit` runs `bun run test:unit`.
 
 ## License
 

@@ -13,8 +13,14 @@ describe("NumberVO", () => {
 		expect(new NumberVO(0, context).value).toBe(0);
 	});
 
-	it("rejects a negative number", () => {
-		expect(() => new NumberVO(-1, context)).toThrow(InvalidPropertyException);
+	it("accepts a negative number", () => {
+		expect(new NumberVO(-1, context).value).toBe(-1);
+	});
+
+	it("rejects a non-number", () => {
+		expect(() => new NumberVO("7" as never, context)).toThrow(
+			InvalidPropertyException,
+		);
 	});
 
 	it("demo() falls back to 42", () => {

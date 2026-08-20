@@ -32,6 +32,10 @@ const ANONYMOUS_SOURCE = "value-object";
  *
  * @typeParam ValueType - Runtime type of the value the generated VO wraps.
  * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
+ * @typeParam Sensitive - Inferred from `sensitive`, never written by hand. The
+ *   literal reaches the generated class's `[Meta]` slot, which is what lets a
+ *   `RepositoryOf` built over a blueprint holding it drop the key's
+ *   `findBy`/`findManyBy` methods.
  *
  * @param args - The schema, the demo-mode default, and the optional hooks.
  * @returns The generated `ValueObject` subclass, ready for a blueprint.
@@ -57,7 +61,11 @@ const ANONYMOUS_SOURCE = "value-object";
  * const staffProperties = { email: CompanyEmail };
  * ```
  */
-export function defineValueObject<ValueType, SchemaType extends t.TSchema>({
+export function defineValueObject<
+	ValueType,
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = false,
+>({
 	default: fallback,
 	name,
 	redactWith,
@@ -66,14 +74,15 @@ export function defineValueObject<ValueType, SchemaType extends t.TSchema>({
 	transform,
 	unique,
 	validate,
-}: IDefineValueObjectArgs<ValueType, SchemaType>): ValueObjectClassOf<
+}: IDefineValueObjectArgs<
 	ValueType,
-	SchemaType
-> {
+	SchemaType,
+	Sensitive
+>): ValueObjectClassOf<ValueType, SchemaType, Sensitive> {
 	// Built once, in the closure: `defineMeta()` runs on every construction, so
 	// a literal declared inside the class body would allocate per instance and
 	// hand `SchemaManager` a new cache key each time.
-	const meta: IValueObjectMetadata<ValueType, SchemaType> = {
+	const meta: IValueObjectMetadata<ValueType, SchemaType, Sensitive> = {
 		default: fallback,
 		redactWith,
 		schema,
@@ -87,9 +96,17 @@ export function defineValueObject<ValueType, SchemaType extends t.TSchema>({
 			"Custom value-object: the declared default does not pass the declared schema. The base validates the default like any other value, so demo mode — and every entity whose blueprint includes this class — would fail on it.",
 		);
 
-	class CustomValueObject extends ValueObject<ValueType, SchemaType> {
+	class CustomValueObject extends ValueObject<
+		ValueType,
+		SchemaType,
+		Sensitive
+	> {
 		/** @returns The schema and default captured by the factory call. */
-		protected defineMeta(): IValueObjectMetadata<ValueType, SchemaType> {
+		protected defineMeta(): IValueObjectMetadata<
+			ValueType,
+			SchemaType,
+			Sensitive
+		> {
 			return meta;
 		}
 
@@ -132,5 +149,9 @@ export function defineValueObject<ValueType, SchemaType extends t.TSchema>({
 	// instantiates `Self` at that constraint and the return type collapses to
 	// `{ value: unknown }` — narrower than what the call actually produces.
 	// Everything else on the class matches `ValueObjectClassOf` structurally.
-	return CustomValueObject as ValueObjectClassOf<ValueType, SchemaType>;
+	return CustomValueObject as ValueObjectClassOf<
+		ValueType,
+		SchemaType,
+		Sensitive
+	>;
 }

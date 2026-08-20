@@ -16,10 +16,15 @@ import type { t } from "@roastery/terroir";
  * The shape satisfies the entity pillar's `AnyValueObjectClass`, so a class
  * produced by a factory drops straight into a blueprint. Keeping `SchemaType`
  * as a parameter is what lets `SchemaOf` recover the exact TypeBox schema
- * through its `ValueObject<unknown, infer SchemaType>` conditional.
+ * through its `ValueObject<unknown, infer SchemaType, boolean>` conditional.
+ *
+ * `Sensitive` is carried for the same reason, one step further on: it reaches
+ * the instance side's `[Meta]` slot, which is where `RepositoryFilterKeysOf`
+ * reads it to drop the key from a generated port.
  *
  * @typeParam ValueType - Runtime type of the value the generated VO wraps.
  * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
+ * @typeParam Sensitive - `true` when the factory call declared `sensitive: true`.
  *
  * @see `defineValueObject` — the core factory returning this shape.
  * @see `AnyValueObjectClass` in `@roastery/beans/domain/entity/types` — the blueprint contract it satisfies.
@@ -34,15 +39,19 @@ import type { t } from "@roastery/terroir";
  * new Title("A Cool Post", { name: "title", source: "post" }).value;
  * ```
  */
-export type ValueObjectClassOf<ValueType, SchemaType extends t.TSchema> = {
+export type ValueObjectClassOf<
+	ValueType,
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = false,
+> = {
 	/** Instance side, kept precise so `RawValueOf` and `SchemaOf` stay exact. */
-	readonly prototype: ValueObject<ValueType, SchemaType>;
+	readonly prototype: ValueObject<ValueType, SchemaType, Sensitive>;
 
 	/** Mirrors the base constructor: a value plus the identification context. */
 	new (
 		value: ValueType,
 		context: IValueObjectContext,
-	): ValueObject<ValueType, SchemaType>;
+	): ValueObject<ValueType, SchemaType, Sensitive>;
 
 	/**
 	 * Inherited from the base: builds the VO from its declared default.
@@ -50,5 +59,7 @@ export type ValueObjectClassOf<ValueType, SchemaType extends t.TSchema> = {
 	 * @param context - `{ name, source }` — whose value this is.
 	 * @returns An instance built from `meta.default`.
 	 */
-	demo(context: IValueObjectContext): ValueObject<ValueType, SchemaType>;
+	demo(
+		context: IValueObjectContext,
+	): ValueObject<ValueType, SchemaType, Sensitive>;
 };

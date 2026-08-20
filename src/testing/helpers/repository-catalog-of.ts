@@ -55,6 +55,8 @@ export function repositoryCatalogOf(
 			"findManyByIds",
 			...filterKeys.map((key) => `findBy${capitalizeKey(key)}`),
 			...collectionKeys.map((key) => `findManyBy${capitalizeKey(key)}`),
+			...collectionKeys.map((key) => `countBy${capitalizeKey(key)}`),
+			...filterKeys.map((key) => `existsBy${capitalizeKey(key)}`),
 			"create",
 			"update",
 			"delete",

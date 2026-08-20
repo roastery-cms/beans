@@ -771,6 +771,61 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	}
 
 	/**
+	 * Whether a key was **declared** sensitive — by its value-object's
+	 * `sensitive: true`, or by this entity's own `defineEntity`.
+	 *
+	 * It reports the declaration and nothing else: it never looks at the stored
+	 * value, and a key answering `true` is still readable through
+	 * {@link Entity.get} and still round-trips through `toJSON`. What the flag
+	 * changes is where the value is *allowed to surface* — `toString()`,
+	 * `toSafeJSON()` and Node's inspect output replace it, while `toJSON()`
+	 * stays lossless because it is the persistence contract.
+	 *
+	 * **The two declaration sources are not interchangeable further down.** Both
+	 * redact, and both answer `true` here. Only the value-object one also
+	 * suppresses the key's `findBy`/`findManyBy` methods in a derived
+	 * `RepositoryOf`: the per-aggregate `sensitive: [...]` list is a value the
+	 * class type never sees, so the type level cannot act on it.
+	 *
+	 * Unlike {@link Entity.isUnique}, the identity fields are **not** seeded:
+	 * `id`, `createdAt` and `updatedAt` all return `false`, because an
+	 * identifier is not a secret — it is what a log needs in order to be useful.
+	 *
+	 * @param key - A blueprint key or identity field.
+	 * @returns `true` when the key was declared sensitive.
+	 *
+	 * @throws `InvalidPropertyException` — when the key is outside
+	 *   `blueprint ∪ id/createdAt/updatedAt`. Answering `false` to a mistyped
+	 *   name would turn a typo into a silent "not a secret", the same failure
+	 *   mode {@link Entity.get}'s identical guard exists to prevent.
+	 *
+	 * @example
+	 * ```ts
+	 * class User extends entityOf(userProperties, "user", { sensitive: ["token"] }) {}
+	 *
+	 * const user = new User({ email: "alan@roastery.dev", password: "S3cret!x", token: "t" });
+	 *
+	 * user.isSensitive("password"); // true — PasswordVO declared it
+	 * user.isSensitive("token");    // true — the definition named it
+	 * user.isSensitive("email");    // false
+	 * user.isSensitive("id");       // false — identity is not a secret
+	 * ```
+	 *
+	 * @see {@link Entity.isUnique} — the same shape for the uniqueness declaration.
+	 * @see {@link Entity.toSafeJSON} — what acts on the answer.
+	 */
+	public isSensitive<Key extends ReadableKey<PropertiesShape>>(
+		key: Key,
+	): boolean {
+		const name = String(key);
+
+		if (!RAW_ENTITY_KEYS.has(name) && !Object.hasOwn(this[Properties], name))
+			throw new InvalidPropertyException(name, this[Source]);
+
+		return this.#sensitive.has(name);
+	}
+
+	/**
 	 * Whether a key was **declared** unique — by its value-object's
 	 * `unique: true`, by this entity's own `defineEntity`, or by being `id`.
 	 *

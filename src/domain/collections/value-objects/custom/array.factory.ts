@@ -20,6 +20,10 @@ const ARRAY_PLACEHOLDER: never[] = [];
  * **Call it at module scope, once** — see `defineValueObject` for why.
  *
  * @typeParam ItemSchema - TypeBox schema validating a single element.
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  *
  * @param items - The schema every element must pass.
  * @param args - Array options, demo-mode default, and behaviour hooks.
@@ -42,10 +46,17 @@ const ARRAY_PLACEHOLDER: never[] = [];
  * const postProperties = { authors: AuthorIds };
  * ```
  */
-export function customArrayVO<ItemSchema extends t.TSchema>(
+export function customArrayVO<
+	ItemSchema extends t.TSchema,
+	Sensitive extends boolean = false,
+>(
 	items: ItemSchema,
-	args: ICustomValueObjectArgs<t.Static<ItemSchema>[], t.ArrayOptions> = {},
-): ValueObjectClassOf<t.Static<ItemSchema>[], t.TArray<ItemSchema>> {
+	args: ICustomValueObjectArgs<
+		t.Static<ItemSchema>[],
+		t.ArrayOptions,
+		Sensitive
+	> = {},
+): ValueObjectClassOf<t.Static<ItemSchema>[], t.TArray<ItemSchema>, Sensitive> {
 	const { default: fallback = ARRAY_PLACEHOLDER, options, ...hooks } = args;
 
 	return defineValueObject({

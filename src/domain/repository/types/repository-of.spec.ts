@@ -1,9 +1,15 @@
-import { EmailVO, StringVO } from "@/domain/collections/value-objects";
+import {
+	EmailVO,
+	PasswordVO,
+	StringVO,
+} from "@/domain/collections/value-objects";
 import { entityOf } from "@/domain/entity/helpers";
 import type {
 	ICanReadId,
+	ReaderOf,
 	RepositoryOf,
-	RepositoryPage,
+	RepositoryPageOf,
+	WriterOf,
 } from "@/domain/repository/types";
 import { describe, expect, it } from "bun:test";
 
@@ -18,12 +24,27 @@ type Equal<Left, Right> =
 const profileProperties = { bio: StringVO };
 class Profile extends entityOf(profileProperties, "profile") {}
 
-/** `profile` is a nested entity: it must never reach the filter-key catalog. */
-const userProperties = { name: StringVO, email: EmailVO, profile: Profile };
+/**
+ * `profile` is a nested entity and `password` a self-declared sensitive
+ * value-object: neither may reach the filter-key catalog, for different
+ * reasons — one would take a whole object graph as a predicate, the other
+ * would offer a lookup by the secret it exists to hide.
+ */
+const userProperties = {
+	name: StringVO,
+	email: EmailVO,
+	password: PasswordVO,
+	profile: Profile,
+};
 class User extends entityOf(userProperties, "user") {}
 
 const newUser = (email: string): User =>
-	new User({ name: "alan", email, profile: { bio: "roaster" } });
+	new User({
+		name: "alan",
+		email,
+		password: "S3cret!xy",
+		profile: { bio: "roaster" },
+	});
 
 type FlatSpec = RepositoryOf<
 	typeof User,
@@ -65,12 +86,12 @@ describe("RepositoryOf", () => {
 		expect(result).toBe(true);
 	});
 
-	it("requires a RepositoryPage as the second argument of a collection read", () => {
+	it("requires a RepositoryPageOf as the second argument of a collection read", () => {
 		type Repository = RepositoryOf<typeof User, "findManyByName">;
 
 		const result: Equal<
 			Parameters<Repository["findManyByName"]>,
-			[value: string, page: RepositoryPage]
+			[value: string, page: RepositoryPageOf<typeof User>]
 		> = true;
 		expect(result).toBe(true);
 	});
@@ -131,7 +152,7 @@ describe("RepositoryOf", () => {
 		type Extras = {
 			findByEmailDomain(
 				domain: string,
-				page: RepositoryPage,
+				page: RepositoryPageOf<typeof User>,
 			): Promise<readonly User[]>;
 		};
 		type Repository = RepositoryOf<
@@ -183,6 +204,86 @@ describe("RepositoryOf", () => {
 		type Rejected = RepositoryOf<typeof User, "findByProfile">;
 
 		expect<Rejected | undefined>(undefined).toBeUndefined();
+	});
+
+	it("rejects a lookup by a sensitive key", () => {
+		// @ts-expect-error `password` is sensitive, so it generates no filter method.
+		type Rejected = RepositoryOf<typeof User, "findByPassword">;
+
+		expect<Rejected | undefined>(undefined).toBeUndefined();
+	});
+
+	it("rejects a collection lookup by a sensitive key", () => {
+		// @ts-expect-error `password` is sensitive: findManyBy goes with findBy.
+		type Rejected = RepositoryOf<typeof User, "findManyByPassword">;
+
+		expect<Rejected | undefined>(undefined).toBeUndefined();
+	});
+
+	it("resolves countBy and existsBy to their own contracts", () => {
+		type Repository = RepositoryOf<
+			typeof User,
+			"countByEmail" | "existsByEmail" | "existsById"
+		>;
+
+		const counts: Equal<
+			Repository["countByEmail"],
+			(value: string) => Promise<number>
+		> = true;
+		const exists: Equal<
+			Repository["existsByEmail"],
+			(value: string) => Promise<boolean>
+		> = true;
+		const byId: Equal<
+			Repository["existsById"],
+			(value: string) => Promise<boolean>
+		> = true;
+
+		expect([counts, exists, byId]).toEqual([true, true, true]);
+	});
+
+	it("keeps countBy off id, the same way findManyBy is", () => {
+		// @ts-expect-error counting by a primary key is always 0 or 1 — that is
+		// `existsById`, phrased honestly.
+		type Rejected = RepositoryOf<typeof User, "countById">;
+
+		expect<Rejected | undefined>(undefined).toBeUndefined();
+	});
+
+	it("rejects countBy and existsBy on a sensitive key", () => {
+		// @ts-expect-error `password` is sensitive: every derived half goes.
+		type NoCount = RepositoryOf<typeof User, "countByPassword">;
+		// @ts-expect-error the boolean half leaks the secret one bit at a time.
+		type NoExists = RepositoryOf<typeof User, "existsByPassword">;
+
+		expect<NoCount | NoExists | undefined>(undefined).toBeUndefined();
+	});
+
+	it("refuses to let Extras put a suppressed existsBy back", () => {
+		type Rejected = RepositoryOf<
+			typeof User,
+			"findById",
+			"read",
+			// @ts-expect-error `existsByPassword` is in RepositorySuppressedNamesOf.
+			{ existsByPassword(value: string): Promise<boolean> }
+		>;
+
+		expect<Rejected | undefined>(undefined).toBeUndefined();
+	});
+
+	it("partitions the new reads onto the reader half, not the writer", () => {
+		type Repository = RepositoryOf<
+			typeof User,
+			"countByEmail" | "existsByEmail" | "create"
+		>;
+
+		const reads: Equal<
+			keyof ReaderOf<Repository>,
+			"countByEmail" | "existsByEmail"
+		> = true;
+		const writes: Equal<keyof WriterOf<Repository>, "create"> = true;
+
+		expect([reads, writes]).toEqual([true, true]);
 	});
 
 	it("rejects findManyById, which findManyByIds already covers", () => {

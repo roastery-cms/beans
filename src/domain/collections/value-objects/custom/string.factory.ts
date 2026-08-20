@@ -17,6 +17,10 @@ const STRING_PLACEHOLDER = "string";
  *
  * **Call it at module scope, once** — see `defineValueObject` for why.
  *
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  * @param args - Schema options, demo-mode default, and behaviour hooks.
  * @returns The generated string value-object class.
  *
@@ -38,9 +42,9 @@ const STRING_PLACEHOLDER = "string";
  * const postProperties = { title: PostTitle };
  * ```
  */
-export function customStringVO(
-	args: ICustomValueObjectArgs<string, t.StringOptions> = {},
-): ValueObjectClassOf<string, t.TString> {
+export function customStringVO<Sensitive extends boolean = false>(
+	args: ICustomValueObjectArgs<string, t.StringOptions, Sensitive> = {},
+): ValueObjectClassOf<string, t.TString, Sensitive> {
 	const { default: fallback = STRING_PLACEHOLDER, options, ...hooks } = args;
 
 	return defineValueObject({

@@ -20,6 +20,10 @@ const NUMBER_PLACEHOLDER = 0;
  *
  * **Call it at module scope, once** — see `defineValueObject` for why.
  *
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  * @param args - Schema options, demo-mode default, and behaviour hooks.
  * @returns The generated numeric value-object class.
  *
@@ -38,9 +42,9 @@ const NUMBER_PLACEHOLDER = 0;
  * const beanProperties = { score: RoastScore };
  * ```
  */
-export function customNumberVO(
-	args: ICustomValueObjectArgs<number, t.NumberOptions> = {},
-): ValueObjectClassOf<number, t.TNumber> {
+export function customNumberVO<Sensitive extends boolean = false>(
+	args: ICustomValueObjectArgs<number, t.NumberOptions, Sensitive> = {},
+): ValueObjectClassOf<number, t.TNumber, Sensitive> {
 	const { default: fallback = NUMBER_PLACEHOLDER, options, ...hooks } = args;
 
 	return defineValueObject({

@@ -5,8 +5,7 @@ import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
 import type { InputValueOf } from "@/domain/entity/types/input-value-of.type";
 import type { InputValuesOf } from "@/domain/entity/types/input-values-of.type";
 import { describe, expect, it } from "bun:test";
-import { afterHandle } from "./after-handle.decorator";
-import { beforeHandle } from "./before-handle.decorator";
+import { emit } from "./emit.decorator";
 import { fromClass } from "./helpers/from-class";
 import { onCreate } from "./on-create.decorator";
 import { onDelete } from "./on-delete.decorator";
@@ -100,39 +99,22 @@ class User extends Entity<typeof userProperties> {
 		return super.setMany(values);
 	}
 
-	@beforeHandle(PromotionStarted)
-	public startPromoting(): string {
-		this.raiseEvent(PromotionMidpoint);
-		return "started";
-	}
-
-	@afterHandle(PromotionFinished)
+	@emit(PromotionFinished)
 	public finishPromoting(): string {
 		this.raiseEvent(PromotionMidpoint);
 		return "finished";
 	}
 
-	@beforeHandle(PromotionStarted)
-	@afterHandle(PromotionFinished)
-	public promoteThenNotify(): string {
+	/** Two stacked `emit`s: the one closer to the method wraps innermost, so it raises first. */
+	@emit(PromotionStarted)
+	@emit(PromotionFinished)
+	public promoteTwice(): string {
 		this.raiseEvent(PromotionMidpoint);
 		return "promoted";
 	}
 
-	@afterHandle(PromotionFinished)
-	@beforeHandle(PromotionStarted)
-	public notifyThenPromote(): string {
-		this.raiseEvent(PromotionMidpoint);
-		return "promoted";
-	}
-
-	@beforeHandle(PromotionStarted)
-	public explodeAfterBefore(): never {
-		throw new Error("boom");
-	}
-
-	@afterHandle(PromotionFinished)
-	public explodeBeforeAfter(): never {
+	@emit(PromotionFinished)
+	public explodeBeforeEmit(): never {
 		throw new Error("boom");
 	}
 
@@ -148,8 +130,7 @@ class User extends Entity<typeof userProperties> {
 		return "promoted";
 	}
 
-	@beforeHandle(PromotionStarted)
-	@afterHandle(PromotionFinished)
+	@emit(PromotionFinished)
 	@onError(promotionFailedFrom)
 	public promoteWithFullStackOrFail(shouldFail: boolean): string {
 		if (shouldFail) throw new Error("promotion blocked");
@@ -305,31 +286,8 @@ describe("lifecycle decorators", () => {
 });
 
 describe("method decorators", () => {
-	describe("beforeHandle", () => {
-		it("raises the event before the method body runs", () => {
-			const user = new User({ name: "Alan" });
-			user.pullDomainEvents();
-
-			user.startPromoting();
-
-			expect(eventNames(user)).toEqual([
-				"promotion.started",
-				"promotion.midpoint",
-			]);
-		});
-
-		it("still raises the event even if the method later throws", () => {
-			const user = new User({ name: "Alan" });
-			user.pullDomainEvents();
-
-			expect(() => user.explodeAfterBefore()).toThrow("boom");
-
-			expect(eventNames(user)).toEqual(["promotion.started"]);
-		});
-	});
-
-	describe("afterHandle", () => {
-		it("raises the event after the method body returns", () => {
+	describe("emit", () => {
+		it("raises the event after the method body has run to completion", () => {
 			const user = new User({ name: "Alan" });
 			user.pullDomainEvents();
 
@@ -342,12 +300,33 @@ describe("method decorators", () => {
 		});
 
 		it("does not raise the event if the method throws", () => {
+			// No `try`/`catch` is involved: the `raiseEvent` call written after
+			// `target.apply(...)` simply never executes.
 			const user = new User({ name: "Alan" });
 			user.pullDomainEvents();
 
-			expect(() => user.explodeBeforeAfter()).toThrow("boom");
+			expect(() => user.explodeBeforeEmit()).toThrow("boom");
 
 			expect(eventNames(user)).toEqual([]);
+		});
+
+		it("lets the original exception propagate untouched", () => {
+			const user = new User({ name: "Alan" });
+
+			expect(() => user.explodeBeforeEmit()).toThrow("boom");
+		});
+
+		it("stacks with itself, the decorator closest to the method raising first", () => {
+			const user = new User({ name: "Alan" });
+			user.pullDomainEvents();
+
+			user.promoteTwice();
+
+			expect(eventNames(user)).toEqual([
+				"promotion.midpoint",
+				"promotion.finished",
+				"promotion.started",
+			]);
 		});
 	});
 
@@ -396,7 +375,7 @@ describe("method decorators", () => {
 			expect(eventNames(user)).toEqual([]);
 		});
 
-		it("stacks with beforeHandle/afterHandle: before still fires, after never does, on a throw", () => {
+		it("stacks with emit: on a throw only onError's event is raised", () => {
 			const user = new User({ name: "Alan" });
 			user.pullDomainEvents();
 
@@ -404,22 +383,16 @@ describe("method decorators", () => {
 				"promotion blocked",
 			);
 
-			expect(eventNames(user)).toEqual([
-				"promotion.started",
-				"promotion.failed",
-			]);
+			expect(eventNames(user)).toEqual(["promotion.failed"]);
 		});
 
-		it("stacks with beforeHandle/afterHandle: both fire, onError stays silent, on success", () => {
+		it("stacks with emit: on success only emit's event is raised", () => {
 			const user = new User({ name: "Alan" });
 			user.pullDomainEvents();
 
 			expect(user.promoteWithFullStackOrFail(false)).toBe("promoted");
 
-			expect(eventNames(user)).toEqual([
-				"promotion.started",
-				"promotion.finished",
-			]);
+			expect(eventNames(user)).toEqual(["promotion.finished"]);
 		});
 
 		it("keeps the decorated method's own name", () => {
@@ -445,35 +418,16 @@ describe("method decorators", () => {
 	it("passes the method's return value through unaffected", () => {
 		const user = new User({ name: "Alan" });
 
-		expect(user.promoteThenNotify()).toBe("promoted");
-	});
-
-	it("stacks before + after in the same order regardless of declaration order", () => {
-		const user = new User({ name: "Alan" });
-		user.pullDomainEvents();
-
-		user.promoteThenNotify();
-		expect(eventNames(user)).toEqual([
-			"promotion.started",
-			"promotion.midpoint",
-			"promotion.finished",
-		]);
-
-		user.notifyThenPromote();
-		expect(eventNames(user)).toEqual([
-			"promotion.started",
-			"promotion.midpoint",
-			"promotion.finished",
-		]);
+		expect(user.promoteTwice()).toBe("promoted");
 	});
 
 	it("keeps the decorated method's own name", () => {
 		// The replacement is typed as `typeof target`, but the function's own
-		// name only survives because `methodHandleDecorator` calls
-		// `renameDecorated` with `context.name` — without that, every decorated
-		// function would be called "replacement" in stack traces and logs.
+		// name only survives because `emit` calls `renameDecorated` with
+		// `context.name` — without that, every decorated function would be
+		// called "replacement" in stack traces and logs.
 		const user = new User({ name: "Alan" });
 
-		expect(user.promoteThenNotify.name).toBe("promoteThenNotify");
+		expect(user.promoteTwice.name).toBe("promoteTwice");
 	});
 });

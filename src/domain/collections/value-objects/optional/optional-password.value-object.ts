@@ -19,4 +19,5 @@ import { PasswordSchema } from "../../schemas";
  */
 export const OptionalPasswordVO = optionalVO(PasswordSchema, {
 	name: "OptionalPasswordVO",
+	sensitive: true,
 });

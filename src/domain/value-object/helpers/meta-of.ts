@@ -18,6 +18,9 @@ import { readMeta } from "./read-meta";
  *
  * @typeParam ValueType - Runtime type of the value the VO wraps.
  * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
+ * @typeParam Sensitive - Whether the class declared itself sensitive. Defaults
+ *   to the **wide** `boolean`, not to `IValueObjectMetadata`'s own `false` —
+ *   see `readMeta`, whose reasoning this mirrors.
  *
  * @param valueObjectClass - The `ValueObject` class to inspect.
  * @returns The `{ default, schema }` the class declares.
@@ -25,10 +28,14 @@ import { readMeta } from "./read-meta";
  * @throws `InvalidEntityDefinitionException` — when `defineMeta` is not a
  *   prototype method.
  */
-export function metaOf<ValueType, SchemaType extends t.TSchema>(
+export function metaOf<
+	ValueType,
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = boolean,
+>(
 	valueObjectClass: ValueObjectClassLike,
-): IValueObjectMetadata<ValueType, SchemaType> {
-	return readMeta<ValueType, SchemaType>(
+): IValueObjectMetadata<ValueType, SchemaType, Sensitive> {
+	return readMeta<ValueType, SchemaType, Sensitive>(
 		Object.create(valueObjectClass.prototype) as object,
 		"value-object",
 	);

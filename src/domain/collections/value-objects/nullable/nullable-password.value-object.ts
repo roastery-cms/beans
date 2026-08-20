@@ -20,4 +20,5 @@ import { PasswordSchema } from "../../schemas";
  */
 export const NullablePasswordVO = nullableVO(PasswordSchema, {
 	name: "NullablePasswordVO",
+	sensitive: true,
 });

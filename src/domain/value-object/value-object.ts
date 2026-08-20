@@ -29,17 +29,30 @@ import { SchemaManager } from "@roastery/terroir/schema";
  *
  * @typeParam ValueType - Runtime type of the value the VO wraps.
  * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
+ * @typeParam Sensitive - `true` when the class declares itself sensitive. Pass
+ *   it alongside `sensitive: true` in `defineMeta` — the literal travels into
+ *   the public `[Meta]` slot, which is what lets `RepositoryOf` suppress the
+ *   key's `findBy`/`findManyBy` methods. Defaults to `false`, so declaring
+ *   `sensitive: true` without it is a compile error rather than a no-op.
  *
  * @see `metaOf` in `@/domain/value-object/helpers` — reads the class metadata without
  *   constructing an instance.
  * @see {@link IValueObjectMetadata} — the `{ default, schema }` that `defineMeta` returns.
  */
-export abstract class ValueObject<ValueType, SchemaType extends t.TSchema> {
+export abstract class ValueObject<
+	ValueType,
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = false,
+> {
 	/** The wrapped value, already normalised by {@link ValueObject.transform} and validated. */
 	public readonly value: ValueType;
 
 	/** The class's schema and default, obtained from {@link ValueObject.defineMeta} at construction. */
-	public readonly [Meta]: IValueObjectMetadata<ValueType, SchemaType>;
+	public readonly [Meta]: IValueObjectMetadata<
+		ValueType,
+		SchemaType,
+		Sensitive
+	>;
 
 	/** Whose value this is: `{ name, source }`, used in error messages. */
 	public readonly [Context]: IValueObjectContext;
@@ -55,7 +68,11 @@ export abstract class ValueObject<ValueType, SchemaType extends t.TSchema> {
 	 *
 	 * @returns The class's metadata.
 	 */
-	protected abstract defineMeta(): IValueObjectMetadata<ValueType, SchemaType>;
+	protected abstract defineMeta(): IValueObjectMetadata<
+		ValueType,
+		SchemaType,
+		Sensitive
+	>;
 
 	/**
 	 * @param value - The raw value. Goes through `transform` and then validation.
@@ -67,7 +84,10 @@ export abstract class ValueObject<ValueType, SchemaType extends t.TSchema> {
 	 */
 	public constructor(value: ValueType, context: IValueObjectContext) {
 		this[Context] = context;
-		this[Meta] = readMeta<ValueType, SchemaType>(this, context.source);
+		this[Meta] = readMeta<ValueType, SchemaType, Sensitive>(
+			this,
+			context.source,
+		);
 
 		this.value =
 			(value as unknown) === Demo

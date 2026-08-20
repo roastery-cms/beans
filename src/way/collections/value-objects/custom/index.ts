@@ -8,20 +8,27 @@
  * every name below is a straight re-export, not a copy.
  *
  * Re-exports: {@link defineValueObject} (the core factory), plus its thin
- * wrappers {@link customArrayVO}, {@link customEnumVO}, {@link customNumberVO},
- * {@link customObjectVO}, {@link customRecordVO}, {@link customStringVO},
- * {@link nullableVO}, {@link optionalVO} — for a one-off constraint that
- * doesn't deserve a file of its own.
+ * wrappers {@link customArrayVO}, {@link customBinaryVO},
+ * {@link customEnumVO}, {@link customNumberVO}, {@link customObjectVO},
+ * {@link customRecordVO}, {@link customStringVO}, {@link nullableVO},
+ * {@link optionalVO}, {@link unionVO} — for a one-off constraint that
+ * doesn't deserve a file of its own. {@link encodeBase64} and
+ * {@link decodeBase64} come along for the binary one.
  */
 
 export {
 	customArrayVO,
+	customBinaryVO,
+	customDoubleVO,
 	customEnumVO,
 	customNumberVO,
 	customObjectVO,
 	customRecordVO,
 	customStringVO,
+	decodeBase64,
 	defineValueObject,
+	encodeBase64,
 	nullableVO,
 	optionalVO,
+	unionVO,
 } from "@/domain/collections/value-objects/custom";

@@ -3,9 +3,10 @@ import { deepEquals, uniqueKeysOf } from "@/domain/entity/helpers";
 import type { AnyEntityClass } from "@/domain/entity/types/any-entity-class.type";
 import type {
 	RepositoryExtraMethodsBase,
+	RepositorySuppressedNamesOf,
 	RepositoryMode,
 	RepositoryOf,
-	RepositoryPage,
+	RepositoryPageOf,
 } from "@/domain/repository/types";
 import type {
 	InMemoryRepositoryContext,
@@ -18,6 +19,7 @@ import {
 	ResourceNotFoundException,
 } from "@roastery/terroir/exceptions/infra";
 import { capitalizeKey } from "./helpers/capitalize-key";
+import { compareRaw } from "./helpers/compare-raw";
 import { filterKeysOf } from "./helpers/filter-keys-of";
 import { repositoryCatalogOf } from "./helpers/repository-catalog-of";
 import { resolveSpecNames } from "./helpers/resolve-spec-names";
@@ -120,7 +122,9 @@ type Persistable = { id: string; toJSON(): Row };
 export function inMemoryRepositoryOf<
 	EntityClass extends AnyEntityClass,
 	const Spec extends InMemoryRepositorySpecOf<EntityClass> = readonly [],
-	Extras extends RepositoryExtraMethodsBase = Record<never, never>,
+	Extras extends RepositoryExtraMethodsBase & {
+		[Name in RepositorySuppressedNamesOf<EntityClass>]?: never;
+	} = Record<never, never>,
 >(
 	entityClass: EntityClass,
 	spec?: Spec,
@@ -149,15 +153,30 @@ export function inMemoryRepositoryOf<
 	const hydrate = (row: Row): never =>
 		(entityClass as unknown as Hydratable).fromJSON(row) as never;
 
+	// Ordering happens *before* the slice, which is the whole reason the port
+	// demands it: slicing an unordered set gives a page that can repeat or skip
+	// a row between calls. `id` breaks every tie, so two rows sharing an
+	// `orderBy` value still land in a stable, repeatable position — without it
+	// the guarantee would hold only for a column with no duplicates.
+	//
 	// `start` is clamped so a page below 1 cannot turn into a negative slice
 	// index, which would silently return a window counted from the end.
-	const paginate = <Item>(
-		items: readonly Item[],
-		page: RepositoryPage,
-	): readonly Item[] => {
+	const paginate = (
+		items: readonly Row[],
+		page: RepositoryPageOf<EntityClass>,
+	): readonly Row[] => {
+		const key = page.orderBy as string;
+		const sign = page.direction === "desc" ? -1 : 1;
+
+		const ordered = [...items].sort((left, right) => {
+			const primary = compareRaw(left[key], right[key]);
+
+			return primary !== 0 ? primary * sign : compareRaw(left.id, right.id);
+		});
+
 		const start = Math.max(0, (page.page - 1) * page.perPage);
 
-		return items.slice(start, start + page.perPage);
+		return ordered.slice(start, start + page.perPage);
 	};
 
 	const matching = (key: string, value: unknown): Row[] =>
@@ -192,7 +211,7 @@ export function inMemoryRepositoryOf<
 	// take `findManyByIds` away from the batch loader.
 	const fixed: Row = {
 		count: async () => rows.size,
-		findMany: async (page: RepositoryPage) =>
+		findMany: async (page: RepositoryPageOf<EntityClass>) =>
 			paginate([...rows.values()], page).map(hydrate),
 		findManyByIds: async (ids: readonly string[]) =>
 			ids.map((id) => {
@@ -233,10 +252,21 @@ export function inMemoryRepositoryOf<
 
 	const singleByName = new Map<string, string>();
 	const manyByName = new Map<string, string>();
+	const countByName = new Map<string, string>();
+	const existsByName = new Map<string, string>();
 
 	for (const key of filterKeysOf(properties)) {
 		singleByName.set(`findBy${capitalizeKey(key)}`, key);
-		if (key !== "id") manyByName.set(`findManyBy${capitalizeKey(key)}`, key);
+		existsByName.set(`existsBy${capitalizeKey(key)}`, key);
+
+		// `id` is excluded from both collection halves for the same reason
+		// `RepositoryCollectionFilterKeysOf` excludes it: "many by a primary
+		// key" and "how many carry this primary key" are both questions whose
+		// answer is already known to be 0 or 1.
+		if (key !== "id") {
+			manyByName.set(`findManyBy${capitalizeKey(key)}`, key);
+			countByName.set(`countBy${capitalizeKey(key)}`, key);
+		}
 	}
 
 	const repository: Row = {};
@@ -260,9 +290,30 @@ export function inMemoryRepositoryOf<
 
 		const manyKey = manyByName.get(name);
 
-		if (manyKey !== undefined)
-			repository[name] = async (value: unknown, page: RepositoryPage) =>
-				paginate(matching(manyKey, value), page).map(hydrate);
+		if (manyKey !== undefined) {
+			repository[name] = async (
+				value: unknown,
+				page: RepositoryPageOf<EntityClass>,
+			) => paginate(matching(manyKey, value), page).map(hydrate);
+			continue;
+		}
+
+		// `countBy`/`existsBy` read `rows` through `matching`, never through a
+		// generated `findBy*`: a repository built with `spec: ["existsByEmail"]`
+		// has no readers at all and must still answer.
+		const countKey = countByName.get(name);
+
+		if (countKey !== undefined) {
+			repository[name] = async (value: unknown) =>
+				matching(countKey, value).length;
+			continue;
+		}
+
+		const existsKey = existsByName.get(name);
+
+		if (existsKey !== undefined)
+			repository[name] = async (value: unknown) =>
+				matching(existsKey, value).length > 0;
 	}
 
 	if (handler) {

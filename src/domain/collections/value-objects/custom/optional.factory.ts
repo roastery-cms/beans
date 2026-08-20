@@ -20,6 +20,10 @@ import type { ICustomValueObjectArgs, ValueObjectClassOf } from "./types";
  *
  * @typeParam SchemaType - The wrapped schema, validating every non-`undefined`
  *   value.
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  *
  * @param schema - The schema the value must pass when it is not `undefined`.
  * @param args - Union-schema options, the demo-mode default, and hooks. When
@@ -40,15 +44,20 @@ import type { ICustomValueObjectArgs, ValueObjectClassOf } from "./types";
  * new OptionalBio("Alan", { name: "bio", source: "author" }).value;    // "Alan"
  * ```
  */
-export function optionalVO<SchemaType extends t.TSchema>(
+export function optionalVO<
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = false,
+>(
 	schema: SchemaType,
 	args: ICustomValueObjectArgs<
 		t.Static<SchemaType> | undefined,
-		t.SchemaOptions
+		t.SchemaOptions,
+		Sensitive
 	> = {},
 ): ValueObjectClassOf<
 	t.Static<SchemaType> | undefined,
-	t.TUnion<[SchemaType, t.TUndefined]>
+	t.TUnion<[SchemaType, t.TUndefined]>,
+	Sensitive
 > {
 	const { default: fallback, options, ...hooks } = args;
 

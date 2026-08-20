@@ -22,8 +22,8 @@
  * Re-exports, grouped by what they're for:
  * - **Generator** — {@link RepositoryOf}.
  * - **Read capabilities** — {@link ICanCount}, {@link ICanReadBy},
- *   {@link ICanReadId}, {@link ICanReadMany}, {@link ICanReadManyBy},
- *   {@link ICanReadManyByIds}.
+ *   {@link ICanCountBy}, {@link ICanExistsBy}, {@link ICanReadId},
+ *   {@link ICanReadMany}, {@link ICanReadManyBy}, {@link ICanReadManyByIds}.
  * - **Write capabilities** — {@link ICanCreate}, {@link ICanDelete},
  *   {@link ICanUpdate}.
  * - **Whole catalogs** — {@link IEntityReader}, {@link IEntityRepository},
@@ -34,12 +34,15 @@
  *   {@link RepositorySpecOf}, {@link RepositoryWriteMethods}.
  * - **Supporting shapes** — {@link RepositoryCollectionFilterKeysOf},
  *   {@link RepositoryExtraMethodsBase}, {@link RepositoryFilterKeysOf},
- *   {@link RepositoryMode}, {@link RepositoryPage}.
+ *   {@link RepositoryMode}, {@link RepositoryOrderKeysOf},
+ *   {@link RepositoryPageOf}.
  */
 
 export type { ICanCount } from "./ican-count.interface";
+export type { ICanCountBy } from "./ican-count-by.type";
 export type { ICanCreate } from "./ican-create.interface";
 export type { ICanDelete } from "./ican-delete.interface";
+export type { ICanExistsBy } from "./ican-exists-by.type";
 export type { ICanReadBy } from "./ican-read-by.type";
 export type { ICanReadId } from "./ican-read-id.type";
 export type { ICanReadMany } from "./ican-read-many.interface";
@@ -57,8 +60,11 @@ export type { RepositoryGroupedSpecOf } from "./repository-grouped-spec-of.type"
 export type { RepositoryMethodsOf } from "./repository-methods-of.type";
 export type { RepositoryMode } from "./repository-mode.type";
 export type { RepositoryOf } from "./repository-of.type";
-export type { RepositoryPage } from "./repository-page.type";
+export type { RepositoryOrderKeysOf } from "./repository-order-keys-of.type";
+export type { RepositoryPageOf } from "./repository-page-of.type";
 export type { RepositoryReadMethodsOf } from "./repository-read-methods-of.type";
+export type { RepositorySensitiveKeysOf } from "./repository-sensitive-keys-of.type";
 export type { RepositorySpecOf } from "./repository-spec-of.type";
+export type { RepositorySuppressedNamesOf } from "./repository-suppressed-names-of.type";
 export type { RepositoryWriteMethods } from "./repository-write-methods.type";
 export type { WriterOf } from "./writer-of.type";

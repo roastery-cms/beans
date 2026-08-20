@@ -1,6 +1,7 @@
 import type { AnyEntityClass } from "@/domain/entity/types/any-entity-class.type";
 import type { RepositoryContractOf } from "./repository-contract-of.type";
 import type { RepositoryExtraMethodsBase } from "./repository-extra-methods-base.type";
+import type { RepositorySuppressedNamesOf } from "./repository-suppressed-names-of.type";
 import type { RepositoryMode } from "./repository-mode.type";
 import type { RepositorySpecOf } from "./repository-spec-of.type";
 import type { SelectedRepositoryMethodsOf } from "./selected-repository-methods-of.type";
@@ -53,13 +54,13 @@ import type { WithRepositoryExtras } from "./with-repository-extras.type";
  *   typeof User,
  *   "findById" | "findByEmail",
  *   "read",
- *   { findByEmailDomain(domain: string, page: RepositoryPage): Promise<readonly User[]> }
+ *   { findByEmailDomain(domain: string, page: RepositoryPageOf<typeof User>): Promise<readonly User[]> }
  * >;
  *
  * class PrismaUserRepository implements UserRepository {
  *   async findById(value: string): Promise<User | null> { … }
  *   async findByEmail(value: string): Promise<User | null> { … }
- *   async findMany(page: RepositoryPage): Promise<readonly User[]> { … }
+ *   async findMany(page: RepositoryPageOf<typeof User>): Promise<readonly User[]> { … }
  *   async create(entity: User): Promise<void> { … }
  *   async update(entity: User): Promise<void> { … }
  * }
@@ -109,7 +110,9 @@ export type RepositoryOf<
 	EntityClass extends AnyEntityClass,
 	Spec extends RepositorySpecOf<EntityClass>,
 	Mode extends RepositoryMode = RepositoryMode,
-	Extras extends RepositoryExtraMethodsBase = Record<never, never>,
+	Extras extends RepositoryExtraMethodsBase & {
+		[Name in RepositorySuppressedNamesOf<EntityClass>]?: never;
+	} = Record<never, never>,
 > = WithRepositoryExtras<
 	[SelectedRepositoryMethodsOf<EntityClass, Spec, Mode>] extends [never]
 		? never

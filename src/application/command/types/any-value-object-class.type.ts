@@ -17,9 +17,9 @@ import type { t } from "@roastery/terroir";
  * @see {@link CommandPropertiesShapeBase} — the blueprint built from this.
  */
 export type AnyValueObjectClass = {
-	readonly prototype: ValueObject<unknown, t.TSchema>;
+	readonly prototype: ValueObject<unknown, t.TSchema, boolean>;
 	new (
 		value: never,
 		context: IValueObjectContext,
-	): ValueObject<unknown, t.TSchema>;
+	): ValueObject<unknown, t.TSchema, boolean>;
 };

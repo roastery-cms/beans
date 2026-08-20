@@ -12,19 +12,18 @@
  * `@roastery/beans/way`, which curates the low-ceremony subset of *production*
  * entry points.
  *
- * It is also the first place in `beans` with runtime outside the two layers,
- * and the only place that imports a Node builtin — which is the second reason
- * it exists. The `repository` pillar it doubles stays type-only and emits zero
- * bytes, and `domain`/`application` stay runtime-agnostic; the implementations
- * live here.
+ * It is also the first place in `beans` with runtime outside the two layers.
+ * The `repository` pillar it doubles stays type-only and emits zero bytes; the
+ * one implementation of that port lives here.
+ *
+ * It imports no Node builtin — that belongs to `@roastery/beans/node`, which
+ * `NodeEventEmitterAdapter` moved to. Keeping the two apart is what lets this
+ * subpath mean "for tests" without also meaning "needs a Node host".
  *
  * Re-exports:
  * - {@link inMemoryRepositoryOf} — an in-memory repository for one entity,
  *   generated from its blueprint and typed as the `RepositoryOf` port a real
  *   adapter would implement.
- * - {@link NodeEventEmitterAdapter} — Node's `EventEmitter`, wrapped to
- *   satisfy the `IEventEmitter` contract `eventedRegistry` publishes through.
  */
 
 export { inMemoryRepositoryOf } from "./in-memory-repository-of";
-export { NodeEventEmitterAdapter } from "./node-event-emitter-adapter";

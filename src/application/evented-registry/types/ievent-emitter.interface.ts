@@ -30,7 +30,7 @@ import type { IDomainEvent } from "@/domain/domain-event/types";
  * ```
  *
  * @see `eventedRegistry` in `@roastery/beans/application/evented-registry` — the only caller of `emit`.
- * @see `NodeEventEmitterAdapter` in `@roastery/beans/testing` — the ready-made
+ * @see `NodeEventEmitterAdapter` in `@roastery/beans/node` — the ready-made
  *   adapter for Node's own `EventEmitter`, so that one never has to be written.
  */
 export interface IEventEmitter {

@@ -9,16 +9,20 @@
  * re-export, not a copy.
  *
  * Re-exports:
+ * - {@link IBinaryValueObjectOptions} — `customBinaryVO`'s options: `t.StringOptions` plus `minBytes`/`maxBytes`.
  * - {@link ICustomValueObjectArgs} — payload of the sugar factories: `{ options, default, …hooks }`.
  * - {@link IDefineValueObjectArgs} — payload of the core factory: `{ schema, default, …hooks }`.
+ * - {@link IDoubleValueObjectArgs} — fixed-precision decimal of either sign (rounds to 2 places via `transform`).
  * - {@link IValueObjectHooks} — the `{ name, transform, validate }` shared by both.
  * - {@link ValueObjectClassOf} — the class every factory returns; the annotation
  *   that keeps declaration emit working.
  */
 
 export type {
+	IBinaryValueObjectOptions,
 	ICustomValueObjectArgs,
 	IDefineValueObjectArgs,
-	ValueObjectClassOf,
+	IDoubleValueObjectArgs,
 	IValueObjectHooks,
+	ValueObjectClassOf,
 } from "@/domain/collections/value-objects/custom/types";

@@ -16,7 +16,8 @@ export type CommandSchemaOf<Shape extends CommandPropertiesShapeBase> =
 	t.TObject<{
 		[Key in CommandDomainKeys<Shape>]: Shape[Key]["prototype"] extends ValueObject<
 			unknown,
-			infer SchemaType
+			infer SchemaType,
+			boolean
 		>
 			? SchemaType
 			: never;

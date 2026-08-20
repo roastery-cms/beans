@@ -34,6 +34,8 @@
  *
  * Re-exports:
  * - {@link customArrayVO}  — array constrained by an item schema.
+ * - {@link customBinaryVO} — binary payload, stored as a base64 string.
+ * - {@link customDoubleVO} — fixed-precision decimal, rounding to `decimals` places before validation.
  * - {@link customEnumVO}   — one of a fixed set of literal values, built on `t.Enum`.
  * - {@link nullableVO}     — wraps a schema so its value may also be `null` (key stays required).
  * - {@link customNumberVO} — number constrained by bounds.
@@ -41,17 +43,25 @@
  * - {@link optionalVO}     — wraps a schema so its value may also be `undefined` (key becomes optional).
  * - {@link customRecordVO} — free-form object, no declared shape.
  * - {@link customStringVO} — string constrained by length, pattern or format.
+ * - {@link unionVO}        — value matching any one of several schemas.
  * - {@link defineValueObject} — the core the others lower into.
+ * - {@link encodeBase64} / {@link decodeBase64} — bytes in, bytes out, for a
+ *   `customBinaryVO`-backed property.
  */
 
 import "@roastery/terroir/schema/formats";
 
 export { customArrayVO } from "./array.factory";
+export { customBinaryVO } from "./binary.factory";
 export { defineValueObject } from "./define-value-object";
+export { customDoubleVO } from "./double.factory";
 export { customEnumVO } from "./enum.factory";
+export { decodeBase64 } from "./helpers/decode-base64";
+export { encodeBase64 } from "./helpers/encode-base64";
 export { nullableVO } from "./nullable.factory";
 export { customNumberVO } from "./number.factory";
 export { customObjectVO } from "./object.factory";
 export { optionalVO } from "./optional.factory";
 export { customRecordVO } from "./record.factory";
 export { customStringVO } from "./string.factory";
+export { unionVO } from "./union.factory";

@@ -11,11 +11,16 @@ import type { IValueObjectContext } from "@/domain/value-object/types";
  * instance — everything a hook needs arrives through its parameters.
  *
  * @typeParam ValueType - Runtime type of the value the generated VO wraps.
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed.
+ *   Inferred from the argument, so a factory call needs no ceremony to get it.
  *
  * @see {@link IDefineValueObjectArgs} — the core factory's payload.
  * @see {@link ICustomValueObjectArgs} — the sugar factories' payload.
  */
-export interface IValueObjectHooks<ValueType> {
+export interface IValueObjectHooks<
+	ValueType,
+	Sensitive extends boolean = false,
+> {
 	/**
 	 * Name stamped onto the generated class (`Class.name`), and used as the
 	 * `source` of the exception raised when the declared default fails the
@@ -30,8 +35,13 @@ export interface IValueObjectHooks<ValueType> {
 	 * value in `toJSON()`; an `Entity` carrying one replaces it in
 	 * `toString()`, `toSafeJSON()` and Node's inspect output, while `toJSON()`
 	 * stays lossless for persistence.
+	 *
+	 * Passing `true` also **suppresses the key's `findBy`/`findManyBy` methods**
+	 * in any `RepositoryOf` derived from a blueprint holding the generated class:
+	 * the literal is inferred into `Sensitive` and travels through to the `[Meta]`
+	 * slot, which is the only place the type level can read it from.
 	 */
-	readonly sensitive?: boolean;
+	readonly sensitive?: Sensitive;
 
 	/**
 	 * Marks the generated class's values as unique across every row of the

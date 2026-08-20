@@ -1,5 +1,7 @@
 import type { AnyEntityClass } from "@/domain/entity/types/any-entity-class.type";
 import type { PropertiesOfClass } from "@/domain/entity/types/properties-of-class.type";
+import type { ICanCountBy } from "./ican-count-by.type";
+import type { ICanExistsBy } from "./ican-exists-by.type";
 import type { ICanReadBy } from "./ican-read-by.type";
 import type { ICanReadManyBy } from "./ican-read-many-by.type";
 import type { RepositoryCollectionFilterKeysOf } from "./repository-collection-filter-keys-of.type";
@@ -20,7 +22,10 @@ import type { RepositoryFilterKeysOf } from "./repository-filter-keys-of.type";
  *
  * `findManyBy…` is tested **before** `findBy…`: every `findManyByX` also
  * matches the `findBy${string}` shape via the key `ManyByX`, so the narrower
- * pattern has to win first.
+ * pattern has to win first. That is the **only** order-sensitive pair here —
+ * `countBy…` and `existsBy…` carry disjoint prefixes and can sit anywhere in
+ * the chain. They are listed last for readability, not because the position
+ * carries meaning, and moving them would change nothing.
  *
  * @typeParam EntityClass - The concrete `Entity` subclass, e.g. `typeof User`.
  * @typeParam Name - The method name to resolve.
@@ -41,5 +46,13 @@ export type PerKeyRepositoryContractOf<
 			: never
 		: Name extends `findBy${Capitalize<Key>}`
 			? ICanReadBy<EntityClass, Key>
-			: never;
+			: Name extends `countBy${Capitalize<Key>}`
+				? Key extends RepositoryCollectionFilterKeysOf<
+						PropertiesOfClass<EntityClass>
+					>
+					? ICanCountBy<EntityClass, Key>
+					: never
+				: Name extends `existsBy${Capitalize<Key>}`
+					? ICanExistsBy<EntityClass, Key>
+					: never;
 }[RepositoryFilterKeysOf<PropertiesOfClass<EntityClass>>];

@@ -9,7 +9,7 @@ import type {
 	IEntityWriter,
 	ReaderOf,
 	RepositoryOf,
-	RepositoryPage,
+	RepositoryPageOf,
 	WriterOf,
 } from "@/domain/repository/types";
 import { describe, expect, it } from "bun:test";
@@ -57,6 +57,15 @@ describe("IEntityReader", () => {
 			| "findManyByUpdatedAt"
 			| "findManyByName"
 			| "findManyByEmail"
+			| "countByCreatedAt"
+			| "countByUpdatedAt"
+			| "countByName"
+			| "countByEmail"
+			| "existsById"
+			| "existsByCreatedAt"
+			| "existsByUpdatedAt"
+			| "existsByName"
+			| "existsByEmail"
 		> = true;
 		expect(reader).toBe(true);
 	});
@@ -122,7 +131,11 @@ describe("ReaderOf", () => {
 			typeof User,
 			"create",
 			"read" | "write",
-			{ findArchived(page: RepositoryPage): Promise<readonly User[]> }
+			{
+				findArchived(
+					page: RepositoryPageOf<typeof User>,
+				): Promise<readonly User[]>;
+			}
 		>;
 
 		const result: Equal<keyof ReaderOf<Custom>, "findArchived"> = true;

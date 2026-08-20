@@ -9,12 +9,16 @@ describe("OptionalNumberVO", () => {
 		expect(new OptionalNumberVO(undefined, context).value).toBeUndefined();
 	});
 
-	it("accepts a real non-negative number", () => {
+	it("accepts a real number", () => {
 		expect(new OptionalNumberVO(7, context).value).toBe(7);
 	});
 
-	it("rejects a negative number", () => {
-		expect(() => new OptionalNumberVO(-1, context)).toThrow(
+	it("accepts a negative number", () => {
+		expect(new OptionalNumberVO(-1, context).value).toBe(-1);
+	});
+
+	it("rejects a non-number", () => {
+		expect(() => new OptionalNumberVO("7" as never, context)).toThrow(
 			InvalidPropertyException,
 		);
 	});

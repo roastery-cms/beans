@@ -9,4 +9,4 @@ import type { t } from "@roastery/terroir";
  *
  * @see {@link AnyValueObjectClass} — the matching class-side type.
  */
-export type AnyValueObject = ValueObject<unknown, t.TSchema>;
+export type AnyValueObject = ValueObject<unknown, t.TSchema, boolean>;

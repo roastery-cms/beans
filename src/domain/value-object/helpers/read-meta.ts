@@ -15,6 +15,11 @@ import type { t } from "@roastery/terroir";
  *
  * @typeParam ValueType - Runtime type of the value the VO wraps.
  * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
+ * @typeParam Sensitive - Whether the class declared itself sensitive. Defaults
+ *   to the **wide** `boolean`, not to `IValueObjectMetadata`'s own `false`:
+ *   this is the reading side, and a caller inspecting an unknown class must be
+ *   able to compare `meta.sensitive === true` without the compiler ruling the
+ *   comparison out as an impossible overlap.
  *
  * @param valueObject - The instance (or probe) expected to implement `defineMeta`.
  * @param source - Identifier for the exception; `"value-object"` when there is no context.
@@ -23,13 +28,17 @@ import type { t } from "@roastery/terroir";
  * @throws `InvalidEntityDefinitionException` — when `defineMeta` is not a
  *   prototype method.
  */
-export function readMeta<ValueType, SchemaType extends t.TSchema>(
+export function readMeta<
+	ValueType,
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = boolean,
+>(
 	valueObject: object,
 	source: string,
-): IValueObjectMetadata<ValueType, SchemaType> {
+): IValueObjectMetadata<ValueType, SchemaType, Sensitive> {
 	const define = (
 		valueObject as {
-			defineMeta?: () => IValueObjectMetadata<ValueType, SchemaType>;
+			defineMeta?: () => IValueObjectMetadata<ValueType, SchemaType, Sensitive>;
 		}
 	).defineMeta;
 

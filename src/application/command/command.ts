@@ -262,7 +262,10 @@ export abstract class Command<
 	public toJSON(): SerializedCommand<Shape> {
 		return Object.fromEntries(
 			Object.entries(
-				this[Context] as Record<string, ValueObject<unknown, t.TSchema>>,
+				this[Context] as Record<
+					string,
+					ValueObject<unknown, t.TSchema, boolean>
+				>,
 			).map(([key, vo]) => [
 				key,
 				redactIfSensitive(this.#sensitive, key, this[Source], vo.value),
@@ -308,9 +311,9 @@ export abstract class Command<
 		if (!Object.hasOwn(this[Properties], key))
 			throw new InvalidPropertyException(String(key), this[Source]);
 
-		return (this[Context] as Record<string, ValueObject<unknown, t.TSchema>>)[
-			key as string
-		]!.value as CommandRawValueOf<Shape[Key]>;
+		return (
+			this[Context] as Record<string, ValueObject<unknown, t.TSchema, boolean>>
+		)[key as string]!.value as CommandRawValueOf<Shape[Key]>;
 	}
 
 	/**

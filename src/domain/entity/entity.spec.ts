@@ -1542,4 +1542,76 @@ describe("Entity", () => {
 			expect(first.id).not.toBe(second.id);
 		});
 	});
+
+	describe("isSensitive", () => {
+		/** Declares sensitivity on the class, so every blueprint using it inherits the fact. */
+		const ApiKeyVO = customStringVO({ name: "ApiKeyVO", sensitive: true });
+
+		const staffProperties = {
+			key: ApiKeyVO,
+			token: StringVO,
+			name: StringVO,
+		};
+
+		class Staff extends Entity<typeof staffProperties> {
+			protected defineEntity(): EntityDefinition<typeof staffProperties> {
+				return {
+					properties: staffProperties,
+					source: "staff",
+					sensitive: ["token"],
+				};
+			}
+		}
+
+		const newStaff = (): Staff =>
+			new Staff({ key: "k-1", token: "t-1", name: "Alan" });
+
+		it("reports a key its value-object declared sensitive", () => {
+			expect(newStaff().isSensitive("key")).toBe(true);
+		});
+
+		it("reports a key the definition named sensitive", () => {
+			expect(newStaff().isSensitive("token")).toBe(true);
+		});
+
+		it("reports false for a key neither source named", () => {
+			expect(newStaff().isSensitive("name")).toBe(false);
+		});
+
+		/**
+		 * Where `isUnique` always answers `true` for `id`, this answers `false`:
+		 * an identifier is not a secret — it is what makes a log useful.
+		 */
+		it("reports false for id and the timestamps, unlike isUnique", () => {
+			const staff = newStaff();
+
+			expect(staff.isSensitive("id")).toBe(false);
+			expect(staff.isSensitive("createdAt")).toBe(false);
+			expect(staff.isSensitive("updatedAt")).toBe(false);
+			expect(staff.isUnique("id")).toBe(true);
+		});
+
+		it("throws for a key outside the blueprint, rather than answering false", () => {
+			// A typo answering `false` would read as "not a secret" — the silent
+			// failure `get`'s identical guard exists to prevent.
+			const read = () =>
+				(
+					newStaff() as unknown as { isSensitive(key: string): boolean }
+				).isSensitive("nope");
+
+			expect(read).toThrow(InvalidPropertyException);
+		});
+
+		/**
+		 * The declaration changes where a value may surface, never whether it is
+		 * readable: `get` and `toJSON` stay lossless, because `toJSON` is the
+		 * persistence contract and has to round-trip through `fromJSON`.
+		 */
+		it("does not hide the value from get or toJSON", () => {
+			const staff = newStaff();
+
+			expect(staff.get("key")).toBe("k-1");
+			expect(staff.toJSON().key).toBe("k-1");
+		});
+	});
 });

@@ -19,6 +19,9 @@ import type { t } from "@roastery/terroir";
  *
  * @typeParam ValueType - Runtime type of the value the VO wraps.
  * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
+ * @typeParam Sensitive - Literal `true` when the class declares itself
+ *   sensitive, `false` (the default) otherwise. See
+ *   {@link IValueObjectMetadata.sensitive} for why it is a type parameter.
  *
  * @example
  * ```ts
@@ -27,7 +30,11 @@ import type { t } from "@roastery/terroir";
  * }
  * ```
  */
-export interface IValueObjectMetadata<ValueType, SchemaType extends t.TSchema> {
+export interface IValueObjectMetadata<
+	ValueType,
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = false,
+> {
 	/** Demo-mode fallback: a ready value, or a thunk for expensive defaults. */
 	readonly default: ValueType | (() => ValueType);
 
@@ -47,9 +54,25 @@ export interface IValueObjectMetadata<ValueType, SchemaType extends t.TSchema> {
 	 * close the loop with `fromJSON`. Both pillars redact in `toString()` and
 	 * in Node's inspect output, which is where an entity leaks by accident.
 	 *
+	 * **It is a type parameter, not a plain `boolean`, and that is what makes it
+	 * readable by the compiler.** `defineMeta` is `protected` and only ever
+	 * invoked at runtime, on a probe — so a `sensitive: boolean` field told the
+	 * type system nothing. Carrying the literal through to the public `[Meta]`
+	 * slot is what lets `RepositoryOf` see the declaration and **suppress
+	 * `findBy{Key}`/`findManyBy{Key}` for the key**: a generated port must not
+	 * invite a lookup by the very secret it is meant to hide.
+	 *
+	 * The parameter defaults to `false`, which makes `sensitive: true` without it
+	 * a `TS2322` rather than a silently ineffective declaration — the noisy
+	 * failure this package prefers everywhere else.
+	 *
+	 * {@link IValueObjectMetadata.unique} deliberately did **not** get the same
+	 * treatment: nothing at the type level reads it, so a literal would buy
+	 * nothing and cost every value-object an extra parameter.
+	 *
 	 * @see {@link IValueObjectMetadata.redactWith} — what it is replaced with.
 	 */
-	readonly sensitive?: boolean;
+	readonly sensitive?: Sensitive;
 
 	/**
 	 * Marks the wrapped value as unique across every row of the aggregate that

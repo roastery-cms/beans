@@ -13,6 +13,7 @@ import type { IValueObjectHooks } from "./value-object-hooks.interface";
  *
  * @typeParam ValueType - Runtime type of the value the generated VO wraps.
  * @typeParam SchemaType - TypeBox schema type validating `ValueType`.
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed.
  *
  * @see {@link ICustomValueObjectArgs} — the sugar counterpart, where `default`
  *   becomes optional because each factory knows a placeholder for its kind.
@@ -26,8 +27,11 @@ import type { IValueObjectHooks } from "./value-object-hooks.interface";
  * });
  * ```
  */
-export interface IDefineValueObjectArgs<ValueType, SchemaType extends t.TSchema>
-	extends IValueObjectHooks<ValueType> {
+export interface IDefineValueObjectArgs<
+	ValueType,
+	SchemaType extends t.TSchema,
+	Sensitive extends boolean = false,
+> extends IValueObjectHooks<ValueType, Sensitive> {
 	/**
 	 * Demo-mode fallback: a ready value, or a thunk for expensive defaults.
 	 *

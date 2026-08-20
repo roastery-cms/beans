@@ -13,6 +13,6 @@ import type { AnyPropertyClass } from "./any-property-class.type";
 export type SchemaOf<Class extends AnyPropertyClass> =
 	Class extends AnyEntityClass
 		? Class["prototype"]["schema"]
-		: Class["prototype"] extends ValueObject<unknown, infer SchemaType>
+		: Class["prototype"] extends ValueObject<unknown, infer SchemaType, boolean>
 			? SchemaType
 			: never;

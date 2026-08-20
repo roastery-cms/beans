@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { StringVO } from "./collections/value-objects";
 import {
 	blueprint,
+	commandRegistry,
 	defineDomainEvent,
 	defineEventHandler,
 	defineUseCase,
@@ -64,5 +65,45 @@ describe("@roastery/beans/way", () => {
 		expect(result.name).toBe("Arabica");
 		expect(events.map((event) => event.name)).toEqual(["bean.planted"]);
 		expect(log).toEqual(["bean.planted"]);
+	});
+
+	/**
+	 * The events-free entry point, and the reason it is in this barrel at all:
+	 * `eventedRegistry` requires an `IEventEmitter`, which means deciding where
+	 * events go before there is anything to publish. `commandRegistry` asks for
+	 * none of that, and still hands back the very same `CommandResult` — its
+	 * `events` included — so nothing is given up by starting here.
+	 */
+	it("orchestrates a use case without an emitter, or any knowledge of events", async () => {
+		const registry = commandRegistry({
+			plantBean: PlantBean,
+		}).withDependencies({});
+
+		const { result, events } = await registry.get("plantBean")({
+			name: "Robusta",
+		});
+
+		expect(result).toBeInstanceOf(Bean);
+		expect(result.name).toBe("Robusta");
+		// The events are still surfaced — publishing them is what is opt-in,
+		// not raising or collecting them.
+		expect(events.map((event) => event.name)).toEqual(["bean.planted"]);
+	});
+
+	it("takes the same spec as eventedRegistry, so moving up is a change of registry only", async () => {
+		const spec = { plantBean: PlantBean };
+
+		const plain = await commandRegistry(spec)
+			.withDependencies({})
+			.get("plantBean")({ name: "Liberica" });
+
+		const evented = await eventedRegistry(spec, new NoopEmitter())
+			.withDependencies({ log: [] })
+			.get("plantBean")({ name: "Liberica" });
+
+		expect(plain.result.name).toBe(evented.result.name);
+		expect(plain.events.map((event) => event.name)).toEqual(
+			evented.events.map((event) => event.name),
+		);
 	});
 });

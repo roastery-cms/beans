@@ -3,7 +3,7 @@ import type { PropertiesOfClass } from "@/domain/entity/types/properties-of-clas
 import type { EntityInstanceOf } from "./entity-instance-of.type";
 import type { RepositoryCollectionFilterKeysOf } from "./repository-collection-filter-keys-of.type";
 import type { RepositoryFilterValueOf } from "./repository-filter-value-of.type";
-import type { RepositoryPage } from "./repository-page.type";
+import type { RepositoryPageOf } from "./repository-page-of.type";
 
 /**
  * The capability of listing entities by one blueprint key:
@@ -13,8 +13,8 @@ import type { RepositoryPage } from "./repository-page.type";
  * one method per member, each paired with its own value type.
  *
  * **Contract:** no match is an empty array, never `null` and never a throw.
- * The {@link RepositoryPage} argument is required — see that type for why a
- * port here can't offer an unbounded read.
+ * The {@link RepositoryPageOf} argument is required — see that type for why a
+ * port here can offer neither an unbounded nor an unordered read.
  *
  * `id` is not a valid `Key` here: {@link RepositoryCollectionFilterKeysOf}
  * excludes it, since "many by a unique key" is a contradiction and
@@ -28,7 +28,9 @@ import type { RepositoryPage } from "./repository-page.type";
  * ```ts
  * type Deps = { posts: ICanReadManyBy<typeof Post, "authorId"> };
  *
- * // await deps.posts.findManyByAuthorId(id, { page: 1, perPage: 20 }) → readonly Post[]
+ * // await deps.posts.findManyByAuthorId(id, {
+ * //   page: 1, perPage: 20, orderBy: "createdAt", direction: "desc",
+ * // }) → readonly Post[]
  * ```
  *
  * @see {@link ICanReadMany} — the same read without a filter.
@@ -40,6 +42,6 @@ export type ICanReadManyBy<
 > = {
 	readonly [Each in Key as `findManyBy${Capitalize<Each>}`]: (
 		value: RepositoryFilterValueOf<PropertiesOfClass<EntityClass>, Each>,
-		page: RepositoryPage,
+		page: RepositoryPageOf<EntityClass>,
 	) => Promise<readonly EntityInstanceOf<EntityClass>[]>;
 };

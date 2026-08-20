@@ -20,6 +20,10 @@ import type { ICustomValueObjectArgs, ValueObjectClassOf } from "./types";
  * **Call it at module scope, once** — see `defineValueObject` for why.
  *
  * @typeParam Properties - The TypeBox properties shape of the object.
+ * @typeParam Sensitive - Literal `true` when `sensitive: true` is passed;
+ *   inferred from the argument, and what suppresses the key's `findBy`/
+ *   `findManyBy` methods in a `RepositoryOf` built over a blueprint holding
+ *   the generated class.
  *
  * @param properties - Schema per key, as `t.Object` takes them.
  * @param args - Object options, the required demo-mode default, and hooks.
@@ -41,17 +45,25 @@ import type { ICustomValueObjectArgs, ValueObjectClassOf } from "./types";
  * const beanProperties = { profile: RoastProfile };
  * ```
  */
-export function customObjectVO<Properties extends t.TProperties>(
+export function customObjectVO<
+	Properties extends t.TProperties,
+	Sensitive extends boolean = false,
+>(
 	properties: Properties,
 	args: ICustomValueObjectArgs<
 		t.Static<t.TObject<Properties>>,
-		t.ObjectOptions
+		t.ObjectOptions,
+		Sensitive
 	> & {
 		readonly default:
 			| t.Static<t.TObject<Properties>>
 			| (() => t.Static<t.TObject<Properties>>);
 	},
-): ValueObjectClassOf<t.Static<t.TObject<Properties>>, t.TObject<Properties>> {
+): ValueObjectClassOf<
+	t.Static<t.TObject<Properties>>,
+	t.TObject<Properties>,
+	Sensitive
+> {
 	const { default: fallback, options, ...hooks } = args;
 
 	return defineValueObject({

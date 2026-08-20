@@ -4,12 +4,11 @@
  * Two kinds of standard (TC39) decorator for an `Entity` subclass, both
  * raising a declared domain event so a subclass stops having to call
  * `this.raiseEvent(...)` by hand: three **class decorators** for fixed
- * lifecycle points, and three **method decorators** for an arbitrary
+ * lifecycle points, and two **method decorators** for an arbitrary
  * business operation.
  *
  * Re-exports:
- * - {@link beforeHandle} — method decorator: raises an event immediately before the decorated method runs.
- * - {@link afterHandle} — method decorator: raises an event immediately after the decorated method returns (never on a thrown exception).
+ * - {@link emit} — method decorator: raises an event once the decorated method has run to completion (never on a thrown exception).
  * - {@link onError} — method decorator: catches an exception the decorated method throws, raises an event built from it, then re-throws the original error.
  * - {@link fromClass} — wraps a payload-less bare event-class reference into the factory shape `onError` needs internally; exported for when that factory value is needed on its own.
  * - {@link onCreate} — class decorator: raises an event on a fresh construction (no `id`/`createdAt`, including `.demo()`).
@@ -36,11 +35,13 @@
  * next to the real one. Audit a read where the read actually happens, in the
  * repository.
  *
- * **`beforeHandle`/`afterHandle` stack with each other and with the three
- * lifecycle decorators, independently.** Pairing one of each on the same
- * method always raises before → method → after, regardless of which is
- * written closer to the method — each brackets whatever it wraps, including
- * another decorator's own wrapper.
+ * **`emit` stacks with `onError` and with the three lifecycle decorators,
+ * independently.** Whichever method decorator is written closer to the
+ * method wraps innermost, each bracketing whatever it wraps — including
+ * another decorator's own wrapper. `emit` and `onError` on the same method
+ * are mutually exclusive per call by construction: a clean run reaches only
+ * `emit`'s raise, a throw reaches only `onError`'s. Two stacked `emit`s both
+ * fire, the innermost one first.
  *
  * **On a nested entity, pull deep.** A decorated class used as another
  * blueprint's property raises into its **own** buffer — `onCreate` fires on
@@ -59,8 +60,7 @@
  *     return { properties: userProperties, source: "user" };
  *   }
  *
- *   @beforeHandle(UserPromotionStarted)
- *   @afterHandle(UserPromotionFinished)
+ *   @emit(UserPromoted)
  *   public promote(): void {
  *     // business logic
  *   }
@@ -68,8 +68,7 @@
  * ```
  */
 
-export { afterHandle } from "./after-handle.decorator";
-export { beforeHandle } from "./before-handle.decorator";
+export { emit } from "./emit.decorator";
 export { fromClass } from "./helpers/from-class";
 export { onCreate } from "./on-create.decorator";
 export { onDelete } from "./on-delete.decorator";
