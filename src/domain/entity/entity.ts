@@ -40,6 +40,7 @@ import { deepEquals } from "./helpers/deep-equals";
 import { buildBaseContext } from "./helpers/build-base-context";
 import { cycleError } from "@/shared/helpers/cycle-error";
 import { isValueObject } from "@/shared/helpers/is-value-object";
+import { isWrapper } from "@/shared/helpers/is-wrapper";
 import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
 import { rawOf } from "@/shared/helpers/raw-of";
 import { resolveUniqueKeys } from "./helpers/resolve-unique-keys";
@@ -57,6 +58,7 @@ import type {
 import type { AnyEntity } from "./types/any-entity.type";
 import type { AnyRecord } from "@/domain/record/types/any-record.type";
 import type { AnyPropertyClass } from "./types/any-property-class.type";
+import type { AnyWrapper } from "@/domain/wrapper/types/any-wrapper.type";
 import type { AnyValueObject } from "./types/any-value-object.type";
 import type { ContextOf } from "./types/context-of.type";
 import type { EntitySchemaOf } from "./types/entity-schema-of.type";
@@ -107,7 +109,7 @@ function buildProperty(
 	key: string,
 	value: unknown,
 	useDefault: boolean,
-): AnyValueObject | AnyEntity | AnyRecord {
+): AnyValueObject | AnyEntity | AnyRecord | AnyWrapper {
 	const propertyClass = properties[key] as AnyPropertyClass;
 
 	if (!isValueObjectClass(propertyClass))
@@ -180,7 +182,10 @@ function buildContext<PropertiesShape extends PropertiesShapeBase>(
 		>;
 
 		const values = applyRuleDefaults(rules, raw ?? {});
-		const built: Record<string, AnyValueObject | AnyEntity | AnyRecord> = {};
+		const built: Record<
+			string,
+			AnyValueObject | AnyEntity | AnyRecord | AnyWrapper
+		> = {};
 		const pending: string[] = [];
 
 		for (const key of Object.keys(properties)) {
@@ -543,7 +548,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 			Object.entries(
 				this[Context] as Record<
 					string,
-					AnyValueObject | AnyEntity | AnyRecord | undefined
+					AnyValueObject | AnyEntity | AnyRecord | AnyWrapper | undefined
 				>,
 			)
 				.filter(([, property]) => property !== undefined)
@@ -577,7 +582,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 			Object.entries(
 				this[Context] as Record<
 					string,
-					AnyValueObject | AnyEntity | AnyRecord | undefined
+					AnyValueObject | AnyEntity | AnyRecord | AnyWrapper | undefined
 				>,
 			)
 				.filter(([, property]) => property !== undefined)
@@ -590,7 +595,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 								this[Source],
 								property.value,
 							)
-						: (property as AnyEntity | AnyRecord).toSafeJSON(),
+						: (property as AnyEntity | AnyRecord | AnyWrapper).toSafeJSON(),
 				]),
 		) as SerializedEntity<PropertiesShape>;
 	}
@@ -684,7 +689,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 
 		const domain = this[Context] as Record<
 			string,
-			AnyValueObject | AnyEntity | AnyRecord
+			AnyValueObject | AnyEntity | AnyRecord | AnyWrapper
 		>;
 
 		const handlers = readSetHandlers(this, "Entity");
@@ -762,6 +767,12 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 
 		if (property === undefined)
 			return undefined as ReadValueOf<PropertiesShape, Key>;
+
+		// The wrapper test comes first: a wrapper is a container, so it would
+		// otherwise fall through as "not a value-object" and be handed back as
+		// the container itself instead of its contents.
+		if (isWrapper(property))
+			return property.unwrap() as ReadValueOf<PropertiesShape, Key>;
 
 		return (isValueObject(property) ? property.value : property) as ReadValueOf<
 			PropertiesShape,
@@ -958,11 +969,13 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		const nested = Object.values(
 			this[Context] as Record<
 				string,
-				AnyValueObject | AnyEntity | AnyRecord | undefined
+				AnyValueObject | AnyEntity | AnyRecord | AnyWrapper | undefined
 			>,
 		).flatMap((property) =>
 			property !== undefined && !isValueObject(property)
-				? (property as AnyEntity | AnyRecord).pullDomainEvents({ deep: true })
+				? (property as AnyEntity | AnyRecord | AnyWrapper).pullDomainEvents({
+						deep: true,
+					})
 				: [],
 		);
 

@@ -5,6 +5,7 @@ import { entityOf } from "@/domain/entity/helpers";
 import type { PropertiesShapeBase } from "@/domain/entity/types";
 import type { RepositoryFilterKeysOf } from "@/domain/repository/types";
 import { recordOf } from "@/domain/record";
+import { arrayOf, optionalOf } from "@/domain/wrapper/helpers";
 import { filterKeysOf } from "./filter-keys-of";
 
 const SecretVO = customStringVO({ name: "SecretVO", sensitive: true });
@@ -17,6 +18,8 @@ const properties = {
 	password: SecretVO,
 	author: Author,
 	price: Money,
+	tags: arrayOf(StringVO),
+	editor: optionalOf(Author),
 } satisfies PropertiesShapeBase;
 
 /** Invariant type equality — see `record-type-parity.spec.ts`. */
@@ -64,5 +67,17 @@ describe("filterKeysOf", () => {
 
 	it("drops a key its value-object declared sensitive", () => {
 		expect(filterKeysOf(properties)).not.toContain("password");
+	});
+
+	/**
+	 * A wrapper is excluded on **both** sides for free, and that is the point:
+	 * the runtime half tests `isValueObjectClass` *positively*, so a fourth
+	 * property kind is dropped without the function being touched — which is
+	 * exactly what the negative test it replaced could not do. The type half
+	 * still writes the branch out, as documentation.
+	 */
+	it("drops a wrapped key, whatever it wraps", () => {
+		expect(filterKeysOf(properties)).not.toContain("tags");
+		expect(filterKeysOf(properties)).not.toContain("editor");
 	});
 });

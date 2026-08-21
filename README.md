@@ -704,6 +704,63 @@ Key rules:
 
 ---
 
+## Multiplicity wrappers
+
+`arrayOf`, `optionalOf` and `nullableOf` take a blueprint class — a value-object, an entity or a record — and return another blueprint class holding **many** of it, **optionally one**, or **one-or-`null`**. They change the multiplicity of a key and nothing else.
+
+They exist so multiplicity stops leaking into the ubiquitous language. Without them, "a post has many tags" has to be spelled as a `TagListVO` or a `PostTags` record — names that are not domain concepts, only variations on one.
+
+```typescript
+import { arrayOf, nullableOf, optionalOf } from "@roastery/beans/domain/wrapper/helpers";
+// also: import { arrayOf } from "@roastery/beans/way";
+
+const postProperties = blueprint({
+  title: StringVO,
+  tags: arrayOf(PostTag),      // many
+  author: optionalOf(Author),  // one, or nothing
+  editor: nullableOf(Author),  // one, or an explicit null
+}).done();
+
+class Post extends entityOf(postProperties, "post") {}
+
+const post = new Post({
+  title: "Beans",
+  tags: [{ name: "Alan Reis" }], // the inner blueprint's own rules run per item
+  editor: null,                  // required: null is stated, never omitted
+});                              // `author` is omittable
+
+post.tags;                  // readonly PostTag[] — the instances themselves
+post.tags[0].slug;          // "alan-reis" — the item's `derive` rule ran
+post.tags[0].rename("Bob"); // the item's verbs stay reachable
+post.author;                // undefined
+post.editor;                // null
+```
+
+Construction relaxes **item by item** exactly as the unwrapped key would: a wrapped entity's identity stays optional-all-or-nothing per item, and its ruled and `optionalVO`-backed keys stay omittable per item. `InputValueOf` is the same type either way, so this holds at every depth.
+
+Key rules:
+
+- **Reads are unwrapped, and there is no `.add()`.** `post.tags` is the list itself, not a collection object with verbs — a wrapper states a multiplicity, it does not become a domain concept. Appending therefore replaces the whole list through `set`, and the existing items go back **through `toJSON()`**, which is what preserves their `id`s:
+  ```typescript
+  post.set("tags", [...post.tags.map((tag) => tag.toJSON()), { name: "new" }]);
+  ```
+  Omitting an item's identity mints a new one. Same contract `set` already has on a nested entity key, only more visible in a list.
+- **`optionalOf` and `nullableOf` are not interchangeable.** `null` never extends `undefined`: an `optionalOf` key is **omittable** and drops out of the schema's `required`, a `nullableOf` key stays **required** and must be stated. The usual `undefined` (request body) versus `null` (database column) split — the same one `optionalVO` and `nullableVO` draw one level down.
+- **A deep drain reaches into the contents.** `post.pullDomainEvents({ deep: true })` walks every item, so an entity inside an `arrayOf` is never stranded. The shallow form returns only the owner's own events, as always.
+- **`demo()` yields an empty container** — `[]`, `undefined` or `null`. A fixture with items is written by passing them.
+- **The derived schema carries the multiplicity**: `t.Array(inner)`, or `t.Union([inner, t.Undefined()])` / `t.Union([inner, t.Null()])`. `fromJSON` therefore still demands a **complete** payload per item, identity included.
+- **A wrapped key derives no repository method.** A list is not a predicate, and an optional entity is the nested-entity case with an extra state, so `findByTags` and `findByAuthor` are compile errors. Filter by a scalar the aggregate owns.
+- **Uniqueness inside a list is not checked, and is not the list's business.** `unique` is an invariant of a set of *rows*, declared on the inner class and enforced by whoever implements that class's repository port. `arrayOf(PostTag)` will happily hold two tags with the same slug.
+- **Call the factories at module scope, once.** Each call mints a fresh class and a fresh schema, like every other class factory here.
+- **A wrapper does not wrap a wrapper.** `arrayOf(arrayOf(Tag))` is not part of the vocabulary — a list of lists is better modeled as a record with a named verb.
+- **A cycle through a wrapper is still a cycle.** `{ children: arrayOf(Node) }` inside `Node`'s own blueprint throws `CyclicEntityDefinitionException`, exactly as direct nesting does.
+- **`sensitive: [...]` on a wrapped key does not redact the whole key.** `isSensitive` answers `true`, but `toSafeJSON` takes the container branch and each item applies its own rules — the same pre-existing limitation an entity- or record-valued key has.
+- **`arrayOf(EmailVO)` and `customArrayVO(EmailSchema)` both exist, and neither is deprecated.** The first wraps a **class**, inheriting its `transform`, `validate` and `sensitive`; the second wraps a **schema**.
+
+A `Command` blueprint accepts wrappers too, including one around an `Entity` — an asymmetry worth naming, since a bare `Entity` key stays a compile error there. A wrapper makes no judgment about what it holds, and the transitive reach was already open anyway (a record blueprint may hold an entity).
+
+---
+
 ## ValueObject
 
 Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()` — the schema that validates the value and the default used in demo mode. Validation runs inside the base constructor, so an instance can never exist unvalidated.
@@ -1588,8 +1645,9 @@ import { Context, Demo, Events, Meta, Properties, Rules, Source, Storage } from 
 
 // The Roastery Way: one import path for the low-ceremony subset of everything below
 import {
-  blueprint as wayBlueprint, entityOf, defineDomainEvent, defineUseCase,
+  blueprint as wayBlueprint, entityOf, recordOf as wayRecordOf, defineDomainEvent, defineUseCase,
   defineEventHandler, commandRegistry as wayCommandRegistry, eventedRegistry,
+  arrayOf as wayArrayOf, optionalOf as wayOptionalOf, nullableOf as wayNullableOf,
 } from "@roastery/beans/way";
 import type { IEventEmitter as WayIEventEmitter, RepositoryOf as WayRepositoryOf } from "@roastery/beans/way";
 
@@ -1638,6 +1696,21 @@ import type {
   RecordSetHandlersOf,
   SerializedRecord,
 } from "@roastery/beans/domain/record/types";
+
+// Multiplicity wrapper subpaths — the fourth blueprint kind
+import { arrayOf, nullableOf, optionalOf } from "@roastery/beans/domain/wrapper/helpers";
+import type {
+  AnyWrapper,
+  AnyWrapperClass,
+  IWrapper,
+  WrappedInputOf,
+  WrappedRawOf,
+  WrappedReadOf,
+  WrapperClassOf,
+  WrapperKind,
+} from "@roastery/beans/domain/wrapper/types";
+// Same three factories, aliased for the application layer — as `collections` already is
+import { arrayOf as commandArrayOf } from "@roastery/beans/application/wrapper/helpers";
 
 // DomainEvent subpaths — DomainEvent itself is also at the root barrel above
 import { defineDomainEvent } from "@roastery/beans/domain/domain-event";

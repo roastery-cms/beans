@@ -19,6 +19,7 @@ import { RAW_ENTITY_KEYS } from "@/domain/entity/helpers/raw-entity-keys";
 import { deepEquals } from "@/domain/entity/helpers/deep-equals";
 import { installAccessors } from "@/shared/helpers/install-accessors";
 import { isValueObject } from "@/shared/helpers/is-value-object";
+import { isWrapper } from "@/shared/helpers/is-wrapper";
 import { rawOf } from "@/shared/helpers/raw-of";
 import { readSetHandlers } from "@/shared/helpers/read-set-handlers";
 import { redactIfSensitive } from "@/shared/redaction/redact-if-sensitive";
@@ -512,6 +513,11 @@ export abstract class DomainRecord<
 
 		if (property === undefined)
 			return undefined as RecordReadValueOf<PropertiesShape, Key>;
+
+		// First, for the reason `Entity.get`'s own branch states: a wrapper is
+		// a container, and would otherwise be handed back instead of unwrapped.
+		if (isWrapper(property))
+			return property.unwrap() as RecordReadValueOf<PropertiesShape, Key>;
 
 		return (
 			isValueObject(property) ? property.value : property

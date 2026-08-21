@@ -1,9 +1,12 @@
 import type { AnyRecordClass } from "@/domain/record/types/any-record-class.type";
+import type { AnyWrapperClass } from "@/domain/wrapper/types/any-wrapper-class.type";
 import type { AnyValueObjectClass } from "./any-value-object-class.type";
 
 /**
  * Base constraint of every `Command` blueprint: a plain object mapping each
- * input field to its `ValueObject` or `DomainRecord` class.
+ * input field to its `ValueObject` class, its `DomainRecord` class, or a
+ * multiplicity wrapper (`arrayOf` / `optionalOf` / `nullableOf`) around any
+ * blueprint class.
  *
  * It never accepts a nested `Entity` (or `Command`) class **directly** — a
  * command's input is a payload, not an aggregate root, and nothing about
@@ -25,14 +28,25 @@ import type { AnyValueObjectClass } from "./any-value-object-class.type";
  *   construction into the record pillar for a record-valued key, and the
  *   record pillar's own `deriving`/`constructing` sets catch the cycle.
  *
+ * **A wrapper is admitted, including one around an `Entity`, and that is an
+ * asymmetry rather than an oversight.** `user: UserEntity` stays a compile
+ * error while `users: arrayOf(UserEntity)` compiles, so the rule above is
+ * reachable around rather than through. It is stated here explicitly so it
+ * does not read as something forgotten: a wrapper is a multiplicity, it makes
+ * no judgment about what it holds, and adding an entity-shaped exception to it
+ * would give the wrapper a second job — knowing which pillar is asking. The
+ * transitive reach is in any case already open, since a record blueprint may
+ * hold an entity.
+ *
  * @example
  * ```ts
- * const createOrderProperties = { email: EmailVO, total: Money };
+ * const createOrderProperties = { email: EmailVO, total: Money, tags: arrayOf(TagVO) };
  * ```
  *
- * @see `AnyRecordClass` in `@/domain/record/types` — the branch this admits.
+ * @see `AnyRecordClass` in `@/domain/record/types` — one of the branches this admits.
+ * @see `AnyWrapperClass` in `@/domain/wrapper/types` — the other.
  */
 export type CommandPropertiesShapeBase = Record<
 	string,
-	AnyValueObjectClass | AnyRecordClass
+	AnyValueObjectClass | AnyRecordClass | AnyWrapperClass
 >;

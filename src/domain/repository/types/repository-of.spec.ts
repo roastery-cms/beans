@@ -7,11 +7,13 @@ import { entityOf } from "@/domain/entity/helpers";
 import type {
 	ICanReadId,
 	ReaderOf,
+	RepositoryFilterKeysOf,
 	RepositoryOf,
 	RepositoryPageOf,
 	WriterOf,
 } from "@/domain/repository/types";
 import { describe, expect, it } from "bun:test";
+import { arrayOf, optionalOf } from "@/domain/wrapper/helpers";
 
 /** Mutual assignability, both directions — the strictest equality a type test can assert. */
 type Equal<Left, Right> =
@@ -46,6 +48,16 @@ const newUser = (email: string): User =>
 		profile: { bio: "roaster" },
 	});
 
+/**
+ * `tags` and `editor` are multiplicity wrappers — the fourth blueprint kind,
+ * and the fourth one a generated port must not offer a lookup by.
+ */
+const wrappedProperties = {
+	title: StringVO,
+	tags: arrayOf(StringVO),
+	editor: optionalOf(Profile),
+};
+
 type FlatSpec = RepositoryOf<
 	typeof User,
 	"findById" | "findByEmail" | "create"
@@ -65,6 +77,22 @@ declare const readOnlyRepository: RepositoryOf<
 >;
 
 describe("RepositoryOf", () => {
+	/**
+	 * A multiplicity wrapper is not a predicate: `findByTags(tags)` would hand
+	 * a whole list to a query builder and hope it agrees with this package
+	 * about what matching a list means, and an `optionalOf` key is the
+	 * nested-entity case with one extra state. Both drop out of the catalog,
+	 * so asking for either name is a compile error rather than a method that
+	 * only some adapter implements.
+	 */
+	it("never derives a lookup from a wrapped key", () => {
+		const result: Equal<
+			RepositoryFilterKeysOf<typeof wrappedProperties>,
+			"title" | "id" | "createdAt" | "updatedAt"
+		> = true;
+		expect(result).toBe(true);
+	});
+
 	it("resolves the grouped spec form to the very same type as the flat one", () => {
 		const result: Equal<FlatSpec, GroupedSpec> = true;
 		expect(result).toBe(true);

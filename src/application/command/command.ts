@@ -4,6 +4,7 @@ import { SchemaManager } from "@roastery/terroir/schema";
 import { Context, Demo, Properties, Source } from "@roastery/terroir/symbols";
 import { installAccessors } from "@/shared/helpers/install-accessors";
 import { isValueObject } from "@/shared/helpers/is-value-object";
+import { isWrapper } from "@/shared/helpers/is-wrapper";
 import { redactIfSensitive } from "@/shared/redaction/redact-if-sensitive";
 import { resolveSensitiveKeys } from "@/shared/redaction/resolve-sensitive-keys";
 import type { ISensitiveKey } from "@/shared/redaction/sensitive-keys-of";
@@ -319,6 +320,11 @@ export abstract class Command<
 			throw new InvalidPropertyException(String(key), this[Source]);
 
 		const property = (this[Context] as Record<string, unknown>)[key as string];
+
+		// First, for the reason `Entity.get`'s own branch states: a wrapper is
+		// a container, and would otherwise be handed back instead of unwrapped.
+		if (isWrapper(property))
+			return property.unwrap() as CommandReadValueOf<Shape, Key>;
 
 		return (
 			isValueObject(property) ? property.value : property

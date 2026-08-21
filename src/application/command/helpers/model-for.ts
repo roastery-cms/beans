@@ -2,6 +2,8 @@ import { modelFor as recordModelFor } from "@/domain/record/helpers/model-for";
 import { definitionOf as recordDefinitionOf } from "@/domain/record/helpers/read-definition";
 import { metaOf } from "@/domain/value-object/helpers";
 import { isRecordClass } from "@/shared/helpers/is-record-class";
+import { isWrapperClass } from "@/shared/helpers/is-wrapper-class";
+import { wrapperModelFor } from "@/domain/wrapper/helpers/model-for";
 import { t } from "@roastery/terroir";
 import { SchemaManager } from "@roastery/terroir/schema";
 import type { AnyValueObjectClass } from "../types/any-value-object-class.type";
@@ -71,6 +73,18 @@ export function modelFor(properties: CommandPropertiesShapeBase): t.TObject {
 
 	const shape: t.TProperties = {};
 	for (const [key, propertyClass] of Object.entries(properties)) {
+		// First in the loop, and it must not `continue` past the
+		// `acceptsUndefined` line below: an `optionalOf` wrapper's derived
+		// schema accepts `undefined`, so the existing `t.Optional` handling
+		// is exactly what makes the key drop out of `required` — the same
+		// treatment an `optionalVO` property already gets.
+		if (isWrapperClass(propertyClass)) {
+			const wrapped = wrapperModelFor(propertyClass);
+
+			shape[key] = acceptsUndefined(wrapped) ? t.Optional(wrapped) : wrapped;
+			continue;
+		}
+
 		// A record-valued key delegates into the record pillar rather than
 		// recursing here: this function knows nothing about nested blueprints,
 		// and the record pillar already owns the memo and the cycle guard.

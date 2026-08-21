@@ -135,6 +135,8 @@ const updatePostTagBySlugProperties = blueprint({
 type UpdatePostTagDependencies = PostTagDependencies;
 type UpdatePostTagSiblings = { findPostTagBySlug: typeof FindPostTagBySlug };
 
+// Se por algum acaso, tiver um onSet para uma propriedade X, e eu usar o set, mas mantendo o valor tradicional, ele vai checar?
+
 class UpdatePostTagBySlug extends defineUseCase<
     typeof updatePostTagBySlugProperties,
     UpdatePostTagDependencies,

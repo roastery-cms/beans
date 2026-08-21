@@ -3,9 +3,11 @@ import type { CommandDomainKeys } from "./command-domain-keys.type";
 import type { CommandPropertiesShapeBase } from "./command-properties-shape-base.type";
 
 /**
- * The blueprint keys whose value-object class accepts `undefined` as an
- * input value — built with `optionalVO`, or any custom value-object whose
- * `ValueType` includes `undefined`. `never` when no property does.
+ * The blueprint keys whose class accepts `undefined` as an input value —
+ * built with `optionalVO`, wrapped in `optionalOf`, or any custom value-object
+ * whose `ValueType` includes `undefined`. `never` when no property does. A
+ * `nullableOf` key is deliberately not picked up: `null` never extends
+ * `undefined`, so it stays required.
  *
  * These are the keys a construction payload may **omit**, on top of the ones
  * a rule already covers — the same relaxation the entity pillar's
@@ -21,9 +23,13 @@ import type { CommandPropertiesShapeBase } from "./command-properties-shape-base
  */
 export type CommandUndefinedableKeys<Shape extends CommandPropertiesShapeBase> =
 	{
-		[Key in CommandDomainKeys<Shape>]: Shape[Key] extends AnyValueObjectClass
-			? undefined extends Shape[Key]["prototype"]["value"]
-				? Key
-				: never
-			: never;
+		[Key in CommandDomainKeys<Shape>]: Shape[Key] extends {
+			readonly wrapperKind: "optional";
+		}
+			? Key
+			: Shape[Key] extends AnyValueObjectClass
+				? undefined extends Shape[Key]["prototype"]["value"]
+					? Key
+					: never
+				: never;
 	}[CommandDomainKeys<Shape>];

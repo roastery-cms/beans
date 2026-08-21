@@ -5,10 +5,15 @@ import type { IdentityInput } from "./identity-input.type";
 import type { AnyRecordClass } from "@/domain/record/types/any-record-class.type";
 import type { NestedRecordInput } from "@/domain/record/types/nested-record-input.type";
 import type { NestedEntityInput } from "./nested-entity-input.type";
+import type { WrappableClass } from "./wrappable-class.type";
+import type { WrappedInputOf } from "@/domain/wrapper/types/wrapped-input-of.type";
+import type { WrapperKind } from "@/domain/wrapper/types/wrapper-kind.type";
 
 /**
  * The **input** form of one blueprint property, as accepted by construction
- * and by `set`: the raw wrapped value for a value-object; for a nested entity,
+ * and by `set`: for a multiplicity wrapper, the inner class's own input form
+ * under that multiplicity (a list, or the value widened with `undefined` /
+ * `null`); the raw wrapped value for a value-object; for a nested entity,
  * its serialized form with the identity made optional (all-or-nothing, per
  * {@link IdentityInput}) and the properties its own blueprint rules cover made
  * optional too; for a nested record, the same thing **without** the identity
@@ -25,8 +30,12 @@ import type { NestedEntityInput } from "./nested-entity-input.type";
  * @see {@link NestedEntityInput} — the nested branch, which mirrors the
  *   nested entity's rules.
  */
-export type InputValueOf<Class extends AnyPropertyClass> =
-	Class extends AnyEntityClass
+export type InputValueOf<Class extends AnyPropertyClass> = Class extends {
+	readonly wrapperKind: infer Kind extends WrapperKind;
+	readonly wraps: infer Inner extends WrappableClass;
+}
+	? WrappedInputOf<Kind, Inner>
+	: Class extends AnyEntityClass
 		? NestedEntityInput<Class> & IdentityInput
 		: Class extends AnyRecordClass
 			? NestedRecordInput<Class>

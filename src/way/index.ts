@@ -54,6 +54,12 @@
  *   construction and execution to it wholesale. A `CommandResult` still
  *   carries its `events` either way, so nothing is lost by starting here —
  *   moving up later is a change of registry, not of use cases.
+ * - **Multiplicity** — {@link arrayOf}, {@link optionalOf} and
+ *   {@link nullableOf}, which take a blueprint class and return another one
+ *   holding many of it, or optionally one, or one-or-`null`. Blueprint
+ *   vocabulary of exactly the low-ceremony kind this barrel is for: without
+ *   them, "a post has many tags" has to be spelled as a type that is not a
+ *   domain concept.
  * - **Domain modeling without identity** — {@link recordOf}, the same
  *   low-ceremony factory shape as `entityOf` for a composite value that
  *   deserves verbs (`Money`, `Address`, `DateRange`) but is not a row: no
@@ -69,6 +75,8 @@
 export { blueprint, entityOf } from "@/domain/entity/helpers";
 
 export { recordOf } from "@/domain/record/helpers";
+
+export { arrayOf, nullableOf, optionalOf } from "@/domain/wrapper/helpers";
 
 export { defineDomainEvent } from "@/domain/domain-event";
 

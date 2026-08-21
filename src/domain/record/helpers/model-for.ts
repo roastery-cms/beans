@@ -5,6 +5,8 @@ import { definitionOf as entityDefinitionOf } from "@/domain/entity/helpers/read
 import { cycleError } from "@/shared/helpers/cycle-error";
 import { isEntityClass } from "@/shared/helpers/is-entity-class";
 import { isRecordClass } from "@/shared/helpers/is-record-class";
+import { isWrapperClass } from "@/shared/helpers/is-wrapper-class";
+import { wrapperModelFor } from "@/domain/wrapper/helpers/model-for";
 import { t } from "@roastery/terroir";
 import type { RecordPropertiesShapeBase } from "../types/record-properties-shape-base.type";
 import { definitionOf } from "./read-definition";
@@ -65,6 +67,18 @@ export function modelFor(
 		const shape: t.TProperties = {};
 
 		for (const [key, propertyClass] of Object.entries(properties)) {
+			// First in the loop, and it must not `continue` past the
+			// `acceptsUndefined` line below: an `optionalOf` wrapper's derived
+			// schema accepts `undefined`, so the existing `t.Optional` handling
+			// is exactly what makes the key drop out of `required` — the same
+			// treatment an `optionalVO` property already gets.
+			if (isWrapperClass(propertyClass)) {
+				const wrapped = wrapperModelFor(propertyClass);
+
+				shape[key] = acceptsUndefined(wrapped) ? t.Optional(wrapped) : wrapped;
+				continue;
+			}
+
 			if (isEntityClass(propertyClass)) {
 				const nested = entityDefinitionOf(propertyClass);
 

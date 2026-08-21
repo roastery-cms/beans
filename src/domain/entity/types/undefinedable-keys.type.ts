@@ -4,10 +4,17 @@ import type { PropertiesShapeBase } from "./properties-shape-base.type";
 
 /**
  * The blueprint keys whose property class accepts `undefined` as an input
- * value — built with `optionalVO`, or any custom value-object whose
- * `ValueType` includes `undefined`. `never` when no property does, which is
- * what collapses this back into the original behaviour for a blueprint with
- * no optional value-objects.
+ * value — built with `optionalVO`, wrapped in `optionalOf`, or any custom
+ * value-object whose `ValueType` includes `undefined`. `never` when no
+ * property does, which is what collapses this back into the original
+ * behaviour for a blueprint with no optional properties.
+ *
+ * The `optionalOf` branch reads the wrapper's `wrapperKind` **static**, which
+ * is safe for the same reason the value-object branch reads
+ * `["prototype"]["value"]` directly: it never re-enters `InputValueOf`, so a
+ * self-referencing blueprint stays expressible. A `nullableOf` key is
+ * deliberately **not** picked up — `null` never extends `undefined`, so it
+ * stays required, exactly as a `nullableVO`-backed key does.
  *
  * These are the keys a construction payload may **omit**, on top of the ones
  * a rule already covers: the runtime already treats a missing key the same as
@@ -38,9 +45,13 @@ import type { PropertiesShapeBase } from "./properties-shape-base.type";
  *   blueprint.
  */
 export type UndefinedableKeys<PropertiesShape extends PropertiesShapeBase> = {
-	[Key in DomainKeys<PropertiesShape>]: PropertiesShape[Key] extends AnyValueObjectClass
-		? undefined extends PropertiesShape[Key]["prototype"]["value"]
-			? Key
-			: never
-		: never;
+	[Key in DomainKeys<PropertiesShape>]: PropertiesShape[Key] extends {
+		readonly wrapperKind: "optional";
+	}
+		? Key
+		: PropertiesShape[Key] extends AnyValueObjectClass
+			? undefined extends PropertiesShape[Key]["prototype"]["value"]
+				? Key
+				: never
+			: never;
 }[DomainKeys<PropertiesShape>];

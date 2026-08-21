@@ -4,6 +4,7 @@ import type { AnyRecordClass } from "@/domain/record/types/any-record-class.type
 import type { AnyValueObjectClass } from "@/domain/entity/types/any-value-object-class.type";
 import type { DomainKeys } from "@/domain/entity/types/domain-keys.type";
 import type { IsSensitiveValueObjectClass } from "@/domain/value-object/types/is-sensitive-value-object-class.type";
+import type { WrapperKind } from "@/domain/wrapper/types/wrapper-kind.type";
 
 /**
  * Every blueprint key a generated repository may be asked to filter by: the
@@ -15,6 +16,13 @@ import type { IsSensitiveValueObjectClass } from "@/domain/value-object/types/is
  * `findByAuthor(author)` would mean handing a whole object graph to a query
  * builder as a predicate. Declare `authorId: UuidVO` in the blueprint and
  * filter by that.
+ *
+ * **Wrapped keys are excluded.** A multiplicity wrapper holds many of
+ * something, or optionally one — neither is a predicate. `findByTags(tags)`
+ * would mean handing a whole list to a query builder and hoping it agrees with
+ * this package about what matching a list means; `findByAuthor` on an
+ * `optionalOf(Author)` is the nested-entity case with an extra state. Filter by
+ * a scalar the aggregate owns instead.
  *
  * **Sensitive keys are excluded too.** A value-object declaring
  * `sensitive: true` says the value is a secret; generating `findByPassword`
@@ -59,14 +67,18 @@ export type RepositoryFilterKeysOf<
 	PropertiesShape extends PropertiesShapeBase,
 > =
 	| {
-			[Key in DomainKeys<PropertiesShape>]: PropertiesShape[Key] extends AnyEntityClass
+			[Key in DomainKeys<PropertiesShape>]: PropertiesShape[Key] extends {
+				readonly wrapperKind: WrapperKind;
+			}
 				? never
-				: PropertiesShape[Key] extends AnyRecordClass
+				: PropertiesShape[Key] extends AnyEntityClass
 					? never
-					: PropertiesShape[Key] extends AnyValueObjectClass
-						? IsSensitiveValueObjectClass<PropertiesShape[Key]> extends true
-							? never
-							: Key
-						: never;
+					: PropertiesShape[Key] extends AnyRecordClass
+						? never
+						: PropertiesShape[Key] extends AnyValueObjectClass
+							? IsSensitiveValueObjectClass<PropertiesShape[Key]> extends true
+								? never
+								: Key
+							: never;
 	  }[DomainKeys<PropertiesShape>]
 	| keyof IRawEntity;
