@@ -1,9 +1,13 @@
 ---
 name: beans-domain-modeling
-description: Use when writing or editing a domain model in this package or a consumer — an `Entity` / `entityOf` subclass, a `DomainRecord` / `recordOf`, a `ValueObject` / `defineMeta`, a `blueprint(...).with(...)` rule, an `onSet` handler, `arrayOf`/`optionalOf`/`nullableOf`, a `DomainEvent` / `defineDomainEvent` / `raiseEvent` / `pullDomainEvents`, `[Storage]`, `destroy()`, `isUnique`/`uniqueKeysOf`, `fromJSON`/`demo()`, nested aggregates, or when accessors, defaults, identity, mutation or serialization behave unexpectedly.
+description: Use when writing or editing an `Entity` / `entityOf`, a `DomainRecord` / `recordOf` or a `ValueObject` / `defineMeta` — accessors, `AccessorsOf`, identity, `fromJSON`, `demo()`, `set`/`setMany`, `[Storage]`, `destroy()`, `isUnique`/`uniqueKeysOf`, `toJSON`/`toSafeJSON`, nested aggregates — or when construction, mutation, hydration or serialization of a domain model behaves unexpectedly.
 ---
 
-# Domain modeling: `ValueObject`, `Entity`, `DomainRecord`, wrappers, events
+# Domain modeling: `ValueObject`, `Entity`, `DomainRecord`
+
+Sibling skills carry the rest of this pillar: `beans-blueprint-rules` (`blueprint().with()` and `onSet`),
+`beans-domain-events` (`raiseEvent`/`pullDomainEvents`), `beans-wrappers`
+(`arrayOf`/`optionalOf`/`nullableOf`) and `beans-entity-decorators`.
 
 ## Inviolable rules
 
@@ -20,19 +24,9 @@ description: Use when writing or editing a domain model in this package or a con
    (`name` is safe — it lives on the constructor.) A **record** blueprint may additionally not name
    `id`/`createdAt`/`updatedAt`.
 4. **`id`/`createdAt`/`updatedAt` never appear in an entity blueprint** — the base supplies them.
-5. **Every mapped type over a blueprint must go through `DomainKeys<Shape>`**, or the `Rules` symbol slot
-   leaks as an accessor / schema field / serialized key.
-6. **A symbol used as a computed key is a *value* import.** `import type { Rules }` in a file that reads
-   or writes `properties[Rules]` throws `ReferenceError: Rules is not defined` from inside `buildContext`
-   — every construction breaks at once while the module graph loads fine.
-7. **Rules act on input only** — never on `set`/`setMany`, never on `toJSON`, never on the schema.
-8. **`setMany` is the mutation primitive; `set` delegates to it.** Validate all, build all, then assign,
+5. **`setMany` is the mutation primitive; `set` delegates to it.** Validate all, build all, then assign,
    so a rejected value leaves the entity untouched; `updatedAt` is stamped once, and only if something
    changed.
-9. **`raiseEvent` is `protected`** — a subclass calls it from its own business methods, never from
-   `set`/`setMany`. It stamps `occurredAt`/`aggregateId` itself and does not accept them.
-10. **Call `arrayOf`/`optionalOf`/`nullableOf` at module scope, once, and never wrap a wrapper.**
-
 ## `ValueObject`
 
 `extends ValueObject<TValue, typeof XSchema>` and implement `defineMeta()`. That's the whole class — no
@@ -142,92 +136,6 @@ rather than stating it.
   rather than answering `false`. **The always-`id` guarantee lives in `helpers/resolve-unique-keys.ts`, not
   in `entityOf`** — seeding it in the factory would make the two forms disagree.
 
-## Blueprint rules
-
-`blueprint(shape).with(rules)` attaches per-property domain rules — `{ default }` (a fallback belonging to
-the entity, outranking the VO's own) or `{ derive }` (computed from siblings). The two are mutually
-exclusive.
-
-```ts
-const postTagProperties = blueprint({ name: TagName, slug: TagSlug, hidden: TagVisibility })
-	.with({ slug: { derive: (raw) => raw.name }, hidden: { default: false } });
-
-new PostTag({ name: "Alan Reis" }); // slug: "alan-reis", hidden: false
-```
-
-- **The rules live under the `Rules` symbol key on the blueprint object itself.** That is what makes the
-  feature cheap: `Object.keys`/`Object.entries` skip symbols, so `modelFor`, `installAccessors`, `toJSON`
-  and every other traversal keep seeing exactly the domain properties.
-- **Ruled keys are optional in the constructor payload**, and so are **`undefined`-accepting keys**
-  (`UndefinedableKeys`: any key whose VO's `value` type includes `undefined`, or an `optionalOf` wrapper).
-  `null` is **not** picked up — a `nullableVO`/`nullableOf` key stays required.
-- **Resolution is explicit value > `default` > `derive`**, all inside `buildContext`. Derivations run in
-  **blueprint order** and read siblings already built and normalised (a `SlugVO` sibling reads back
-  slugified); one reading a key derived later gets `undefined` and fails on that property's validation.
-- **"Omitted" means `undefined`, not falsy** — an explicit `false`/`0`/`""` counts as supplied, which is
-  what makes `{ hidden: { default: false } }` overridable with `true`.
-- **Rules apply in `demo()`** — that is what makes fixtures coherent. Keys with no rule still go through
-  the VO's `.demo()`.
-- **Two phases because a literal cannot reference its own `typeof`.** `blueprint(shape)` alone returns
-  **only** the builder, so forgetting to close it is a type error. **A rule-less blueprint closes with
-  `.done()`**, which returns the shape *as given* — same object reference, no `Rules` slot. Do not write
-  `.with({})`.
-
-## `onSet`
-
-A concrete, empty-by-default `protected` method on both `Entity` and `DomainRecord`, returning
-`SetHandlersOf<Shape>`: at most one handler per blueprint key, run on the **raw** value immediately before
-`buildProperty` materialises it — in `buildContext` (so `new`, `fromJSON` and `demo()` all go through it)
-and in `setMany` (so `set` does too).
-
-The handler returns `void` and enforces by **throwing**; it never rewrites the value, because normalising
-is `transform`'s job. Its second argument is `Readonly<InputValuesOf<Shape>>` — the *same* view
-`PropertyRule.derive` receives, because at construction time `[Context]` does not exist yet.
-
-Four consequences, each a decision: a handler fires **only when there is a raw value to set** (explicit
-payload, blueprint `default`, or `derive` result), which is why `demo()` fires only the derived keys; it
-runs **before** the value-object validates, so the business rule precedes the schema; in `setMany` it runs
-before the whole build phase, preserving the documented atomicity; and it fires **per attempted write**,
-not per effective change.
-
-**The class-field trap is only half-catchable here**: at construction `this.onSet` still resolves to the
-base's empty prototype method with no trace of the field, so `readSetHandlers` throws
-`InvalidEntityDefinitionException` on the first *mutation* instead. Documented, not engineered around.
-
-`Command` gets no `onSet` — it never mutates, and its input failures are already re-tagged
-`UnprocessableContentException` at its own boundary.
-
-## Domain events
-
-- **`raiseEvent`/`pullDomainEvents` are the domain-event buffer**, backed by the `[Events]` slot
-  (per-instance `IDomainEvent[]`, `protected`, **starts empty on `fromJSON`/`demo`**).
-- **Prefer raising from the aggregate root.** An event raised inside a nested entity lands in that
-  entity's own buffer, and `pullDomainEvents` is **shallow by default**. `pullDomainEvents({ deep: true })`
-  opts into the recursion, walking `[Context]` root-first — the form to use whenever a nested entity
-  carries lifecycle decorators, or when a record or wrapper stands between (both forward the deep pull;
-  without it an entity inside an `arrayOf` would keep its events forever, the one completely silent failure
-  in that feature).
-- **`beans` ships no dispatcher** — `pullDomainEvents` only drains the buffer (`splice(0)`); what happens
-  with the result is the consuming application's call. `collectDomainEvents` is the sanctioned way to gather
-  it across aggregates.
-- **A payload-less event class can be passed bare** (`raiseEvent(AuthorRenamed)`) — `raiseEvent` does
-  `new event(this.id)` when `typeof event === "function"`. A subclass whose constructor needs more than
-  `aggregateId` is not assignable to `new (aggregateId: string) => Event`, so TypeScript routes it to the
-  "already built" branch and rejects the bare form — the constructor signature is the guard, no runtime
-  check needed.
-- **`DomainEvent` is optional sugar over `IDomainEvent`, not a second contract.** A subclass declares only
-  `defineName()` and passes `aggregateId` through `super()`; the base stamps `occurredAt`. Because
-  `raiseEvent` always overwrites `occurredAt`/`aggregateId`, a `DomainEvent` instance and a plain
-  `{ name, ...payload }` object behave identically there — reach for the class when an event has payload
-  fields of its own.
-- **`defineDomainEvent(name)`** builds a payload-less `DomainEvent` class from just its name. Scope is
-  deliberately payload-less only. Call it at module scope, once — each call mints a fresh class, so two
-  calls with the same name produce classes `instanceof` does not relate. Its return is annotated
-  `DomainEventClassOf` (TS4060), and the generated class's `.name` is set with the same two-line
-  `Object.defineProperty` trick `defineValueObject` uses, copied inline rather than imported from
-  `entity/decorators/helpers/` — that would be the first dependency from `domain-event/` back into
-  `entity/`.
-
 ## `DomainRecord`
 
 An `Entity` minus identity — and *with* mutation, which is what separates it from `Command`. It exists for
@@ -251,31 +159,6 @@ class Money extends recordOf({ amount: IntegerVO, currency: StringVO }, "money")
   `BadRequestException`). `toJSON()` never redacts; `toSafeJSON()`/`toString()`/the inspect hook do.
 - **The decorators do not apply**; `onUpdate` is the tempting one, and nothing guards it at runtime.
 
-## Multiplicity wrappers
-
-`arrayOf(inner)`, `optionalOf(inner)` and `nullableOf(inner)` take one blueprint class and return another
-holding many of it, optionally one, or one-or-`null`.
-
-```ts
-const postProperties = blueprint({ title: StringVO, tags: arrayOf(PostTag), author: optionalOf(Author) }).done();
-const post = new Post({ title: "x", tags: [{ name: "Alan Reis" }] }); // `author` omittable
-post.tags[0].slug;          // "alan-reis" — the item's own `derive` rule ran
-post.tags[0].rename("Bob"); // the item's verbs stay reachable
-```
-
-- **Construction relaxes item by item**, because `InputValueOf` is the same type either way.
-- **Reads are unwrapped, and there is no `.add()`.** A wrapper states a multiplicity, it does not become a
-  domain concept. Appending replaces the whole list through `set`, passing the existing items back
-  **through `toJSON()`**, which is what preserves their `id`s; omitting an item's identity mints a new one.
-- **`optionalOf` and `nullableOf` are not interchangeable** — only `optionalOf` reaches
-  `UndefinedableKeys` and drops its key out of the schema's `required`.
-- **`demo()` yields an empty container** (`[]`/`undefined`/`null`).
-- **A wrapped key derives no repository method**, on both doors.
-- **`unique` inside a list is not checked and is not the list's business** — it is an invariant of a set of
-  *rows*, read off the inner class by `uniqueKeysOf` and enforced by that class's port.
-- `arrayOf(EmailVO)` and `customArrayVO(EmailSchema)` coexist: the first wraps a *class* (inheriting its
-  `transform`/`validate`/`sensitive`), the second a *schema*.
-
 ## Nesting
 
 A blueprint value may be a `ValueObject`, an `Entity`, a `DomainRecord`, or a wrapper around any of the
@@ -295,7 +178,7 @@ so `arrayOf(User)` compiles in a command where `User` does not.
   be broken.
 
 > Detail: [record-is-entity-minus-identity.md](../../../docs/decisions/record-is-entity-minus-identity.md)
-> · [wrapper-type-constraints.md](../../../docs/decisions/wrapper-type-constraints.md)
 > · [per-pillar-cycle-guards.md](../../../docs/decisions/per-pillar-cycle-guards.md)
 > · [redaction-asymmetry.md](../../../docs/decisions/redaction-asymmetry.md)
-> · decorators: skill `beans-entity-decorators`
+> · siblings: skills `beans-blueprint-rules`, `beans-domain-events`, `beans-wrappers`,
+> `beans-entity-decorators`

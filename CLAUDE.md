@@ -49,12 +49,13 @@ One line per pillar; the skill named at the end of a line carries that pillar's 
 
 **`src/domain/`**
 - `entity/` — the `Entity` base, `EntityStorage`, `helpers/`, `types/`, and `decorators/` (`onCreate`,
-  `onUpdate`, `onDelete`, `emit`, `onError`). Skills `beans-domain-modeling`, `beans-entity-decorators`.
+  `onUpdate`, `onDelete`, `emit`, `onError`). Skills `beans-domain-modeling`, `beans-blueprint-rules`,
+  `beans-entity-decorators`.
 - `record/` — `DomainRecord`: an `Entity` minus identity, *with* mutation. Skill `beans-domain-modeling`.
 - `value-object/` — the `ValueObject` base, `metaOf`, its types. Skill `beans-domain-modeling`.
 - `domain-event/` — `DomainEvent`, `defineDomainEvent`, `IDomainEvent`. Its own pillar, not nested under
-  `entity/`. Skill `beans-domain-modeling`.
-- `wrapper/` — `arrayOf`, `optionalOf`, `nullableOf`. Skill `beans-domain-modeling`.
+  `entity/`. Skill `beans-domain-events`.
+- `wrapper/` — `arrayOf`, `optionalOf`, `nullableOf`. Skill `beans-wrappers`.
 - `repository/` — **`repository/types/` only, type-only, no `index.ts` at the pillar root**: `RepositoryOf`
   and the nine `ICan*` contracts. Skill `beans-repository-port`.
 - `collections/` — 21 Schema / Value Object pairs, plus `custom/`, `optional/`, `nullable/`. Skills
@@ -138,7 +139,8 @@ Silent or hard-to-diagnose failures. Each one has bitten this repo.
 ## Subclass patterns
 
 The preferred form of each base, one example and the rules that decide correctness. `README.md` carries
-the full patterns, including the class forms; skill `beans-domain-modeling` carries the details.
+the full patterns, including the class forms; skills `beans-domain-modeling`, `beans-blueprint-rules`,
+`beans-domain-events` and `beans-wrappers` carry the details.
 
 ### ValueObject
 
