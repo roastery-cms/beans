@@ -11,16 +11,14 @@
  * on some import orders.
  *
  * Everything that does *not* touch the class lives in
- * `./helpers/{accepts-undefined,build-base-context,cycle-error,extract-identity,
+ * `./helpers/{accepts-undefined,build-base-context,extract-identity,
  * model-of-value-object,raw-entity-keys,read-definition}`, imported back by
  * direct path; the parts both pillars share are in `@/shared/helpers`.
  */
 
-import { DateTimeSchema, UuidSchema } from "@/domain/collections/schemas";
 import { DateTimeVO } from "@/domain/collections/value-objects";
 import type { IDomainEvent } from "@/domain/domain-event/types";
 import type { IValueObjectContext } from "@/domain/value-object/types";
-import { t } from "@roastery/terroir";
 import {
 	ImmutablePropertyException,
 	InvalidDomainDataException,
@@ -33,16 +31,22 @@ import { redactIfSensitive } from "@/shared/redaction/redact-if-sensitive";
 import { resolveSensitiveKeys } from "@/shared/redaction/resolve-sensitive-keys";
 import type { ISensitiveKey } from "@/shared/redaction/sensitive-keys-of";
 import { rulesOf } from "@/shared/helpers/rules-of";
+import {
+	type AnySetHandlers,
+	readSetHandlers,
+} from "@/shared/helpers/read-set-handlers";
 import { EntityStorage } from "./entity-storage";
 import { deepEquals } from "./helpers/deep-equals";
-import { acceptsUndefined } from "./helpers/accepts-undefined";
 import { buildBaseContext } from "./helpers/build-base-context";
-import { cycleError } from "./helpers/cycle-error";
+import { cycleError } from "@/shared/helpers/cycle-error";
+import { isValueObject } from "@/shared/helpers/is-value-object";
+import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
+import { rawOf } from "@/shared/helpers/raw-of";
 import { resolveUniqueKeys } from "./helpers/resolve-unique-keys";
 import { extractIdentity } from "./helpers/extract-identity";
-import { modelOfValueObject } from "./helpers/model-of-value-object";
+import { modelFor } from "./helpers/model-for";
 import { RAW_ENTITY_KEYS } from "./helpers/raw-entity-keys";
-import { definitionOf, readDefinition } from "./helpers/read-definition";
+import { readDefinition } from "./helpers/read-definition";
 import type {
 	EntityDefinition,
 	IEntity,
@@ -50,8 +54,8 @@ import type {
 	RawContextOf,
 	SerializedEntity,
 } from "./types";
-import type { AnyEntityClass } from "./types/any-entity-class.type";
 import type { AnyEntity } from "./types/any-entity.type";
+import type { AnyRecord } from "@/domain/record/types/any-record.type";
 import type { AnyPropertyClass } from "./types/any-property-class.type";
 import type { AnyValueObject } from "./types/any-value-object.type";
 import type { ContextOf } from "./types/context-of.type";
@@ -62,6 +66,7 @@ import type { AnyPropertyRule } from "./types/any-property-rule.type";
 import type { PropertiesOfClass } from "./types/properties-of-class.type";
 import type { ReadValueOf } from "./types/read-value-of.type";
 import type { ReadableKey } from "./types/readable-key.type";
+import type { SetHandlersOf } from "./types/set-handlers-of.type";
 import { SchemaManager } from "@roastery/terroir/schema";
 import {
 	Context,
@@ -72,112 +77,19 @@ import {
 	Storage,
 } from "@roastery/terroir/symbols";
 
-/**
- * Derived-schema memo, keyed by the blueprint object — every instance of a
- * class shares one `t.TObject`, and the schema exists without any instance
- * (which is what makes the static `fromJSON` possible).
- *
- * Memoizing the model is also what keeps validation cheap: `SchemaManager`
- * caches each compiled validator against the schema's object identity, so a
- * stable model means the validator is compiled once per blueprint.
- */
-const models = new WeakMap<PropertiesShapeBase, t.TObject>();
-
-/** Blueprints currently being derived into schemas — the cycle guard of {@link modelFor}. */
-const deriving = new Set<PropertiesShapeBase>();
-
 /** Blueprints currently being constructed — the cycle guard of {@link buildContext}. */
 const constructing = new Set<PropertiesShapeBase>();
 
 /**
- * Runtime discriminant between the two blueprint value kinds, class side.
- *
- * @param candidate - A blueprint property class.
- * @returns `true` when the class is an `Entity` subclass.
- */
-function isEntityClass(
-	candidate: AnyPropertyClass,
-): candidate is AnyEntityClass {
-	return (
-		typeof candidate === "function" && candidate.prototype instanceof Entity
-	);
-}
-
-/**
- * Runtime discriminant between the two blueprint value kinds, instance side.
- *
- * @param candidate - Any value.
- * @returns `true` when the value is an `Entity` instance.
- */
-function isEntity(candidate: unknown): candidate is AnyEntity {
-	return candidate instanceof Entity;
-}
-
-/**
- * Derives (and memoizes) the aggregate schema of a blueprint: identity fields
- * plus one schema per property, recursing into nested entity blueprints.
- * Every level is emitted with `additionalProperties: false`.
- *
- * A property whose schema accepts `undefined` is emitted through `t.Optional`,
- * so it drops out of the model's `required` list. Without that, `toJSON()`
- * emitting the key as present-with-`undefined` and `JSON.stringify` then
- * dropping it entirely would make a real round-trip
- * (`fromJSON(JSON.parse(JSON.stringify(entity.toJSON())))`) fail on a key the
- * blueprint declared optional in the first place. Nullable keys are
- * unaffected — `null` serializes fine and stays required.
- *
- * @param properties - The blueprint to derive from.
- * @param source - Entity-type name, for error context.
- * @returns The memoized aggregate model.
- *
- * @throws `CyclicEntityDefinitionException` — when the blueprint references
- *   itself, directly or indirectly.
- *
- * @see {@link acceptsUndefined} — the per-property discriminant.
- */
-function modelFor(properties: PropertiesShapeBase, source: string): t.TObject {
-	const cached = models.get(properties);
-
-	if (cached) return cached;
-
-	if (deriving.has(properties)) throw cycleError(source);
-
-	deriving.add(properties);
-
-	try {
-		const shape: t.TProperties = {
-			id: UuidSchema,
-			createdAt: DateTimeSchema,
-			updatedAt: t.Optional(DateTimeSchema),
-		};
-
-		for (const [key, propertyClass] of Object.entries(properties)) {
-			if (!isEntityClass(propertyClass)) {
-				const model = modelOfValueObject(propertyClass);
-
-				shape[key] = acceptsUndefined(model) ? t.Optional(model) : model;
-				continue;
-			}
-
-			const nested = definitionOf(propertyClass);
-
-			shape[key] = modelFor(nested.properties, nested.source);
-		}
-
-		const model = t.Object(shape, { additionalProperties: false });
-
-		models.set(properties, model);
-
-		return model;
-	} finally {
-		deriving.delete(properties);
-	}
-}
-
-/**
  * Builds one blueprint property: a value-object from its raw value, a nested
- * entity from its raw payload, or either in demo mode when `useDefault` is
- * set.
+ * entity or record from its raw payload, or any of them in demo mode when
+ * `useDefault` is set.
+ *
+ * Entity and record take the **same** branch: both construct from a single
+ * payload argument and both expose a no-argument `demo()`. Only a value-object
+ * differs, needing the `{ name, source }` identification context — which is
+ * why the discriminant is `isValueObjectClass` rather than a three-way test.
+ * Telling an entity from a record is only ever needed for schema derivation.
  *
  * @param properties - The blueprint the key belongs to.
  * @param source - Entity-type name, for error context.
@@ -195,13 +107,15 @@ function buildProperty(
 	key: string,
 	value: unknown,
 	useDefault: boolean,
-): AnyValueObject | AnyEntity {
+): AnyValueObject | AnyEntity | AnyRecord {
 	const propertyClass = properties[key] as AnyPropertyClass;
 
-	if (isEntityClass(propertyClass))
+	if (!isValueObjectClass(propertyClass))
 		return useDefault
 			? (propertyClass as unknown as { demo(): AnyEntity }).demo()
-			: new propertyClass(value as never);
+			: new (propertyClass as unknown as new (payload: never) => AnyEntity)(
+					value as never,
+				);
 
 	const context: IValueObjectContext = { name: key, source };
 
@@ -236,6 +150,9 @@ function buildProperty(
  * @param raw - The raw payload (`undefined` in demo mode).
  * @param useDefault - Whether the properties no rule covers fall back to their
  *   demo defaults.
+ * @param handlers - The `onSet` map, run per key just before its value is
+ *   built. A handler only fires for a key that has a raw value to set, so a
+ *   demo-mode fallback fires nothing.
  * @returns The built context.
  *
  * @throws `CyclicEntityDefinitionException` — when the blueprint references itself.
@@ -249,8 +166,9 @@ function buildContext<PropertiesShape extends PropertiesShapeBase>(
 	source: string,
 	raw: Record<string, unknown> | undefined,
 	useDefault: boolean,
+	handlers: AnySetHandlers,
 ): ContextOf<PropertiesShape> {
-	if (constructing.has(properties)) throw cycleError(source);
+	if (constructing.has(properties)) throw cycleError(source, "Entity");
 
 	constructing.add(properties);
 
@@ -262,7 +180,7 @@ function buildContext<PropertiesShape extends PropertiesShapeBase>(
 		>;
 
 		const values = applyRuleDefaults(rules, raw ?? {});
-		const built: Record<string, AnyValueObject | AnyEntity> = {};
+		const built: Record<string, AnyValueObject | AnyEntity | AnyRecord> = {};
 		const pending: string[] = [];
 
 		for (const key of Object.keys(properties)) {
@@ -270,6 +188,9 @@ function buildContext<PropertiesShape extends PropertiesShapeBase>(
 				pending.push(key);
 				continue;
 			}
+
+			if (values[key] !== undefined)
+				handlers[key]?.(values[key] as never, values as never);
 
 			built[key] = buildProperty(
 				properties,
@@ -289,6 +210,9 @@ function buildContext<PropertiesShape extends PropertiesShapeBase>(
 				values as unknown as Readonly<InputValuesOf<PropertiesShape>>,
 			);
 
+			if (values[key] !== undefined)
+				handlers[key]?.(values[key] as never, values as never);
+
 			built[key] = buildProperty(properties, source, key, values[key], false);
 
 			values[key] = rawOf(built[key]);
@@ -298,19 +222,6 @@ function buildContext<PropertiesShape extends PropertiesShapeBase>(
 	} finally {
 		constructing.delete(properties);
 	}
-}
-
-/**
- * Serializes one built property: `toJSON()` for a nested entity, the wrapped
- * `value` for a value-object.
- *
- * @param property - The built instance.
- * @returns Its raw form.
- */
-function rawOf(property: AnyValueObject | AnyEntity): unknown {
-	return isEntity(property)
-		? property.toJSON()
-		: (property as AnyValueObject).value;
 }
 
 /**
@@ -478,7 +389,64 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 			source,
 			useDefault ? undefined : (context as unknown as Record<string, unknown>),
 			useDefault,
+			readSetHandlers(this, "Entity"),
 		);
+	}
+
+	/**
+	 * The per-property business rules this entity runs **before** a value is
+	 * built — on construction (`new`, `fromJSON`, `demo`) and on every
+	 * `set`/`setMany`. The base returns an empty map; override it to declare a
+	 * handler per blueprint key.
+	 *
+	 * Each handler receives the raw value about to be set plus the same
+	 * read-only view of the whole raw payload a `derive` rule gets. Its return
+	 * is `void`: a rule enforces by **throwing** — the exception is the
+	 * domain's own choice — and never rewrites the value. Normalising stays the
+	 * value-object's `transform`.
+	 *
+	 * Four things follow from where it runs, and all four are the contract:
+	 *
+	 * - A handler fires only when there is a raw value to set: an explicit
+	 *   payload value, a blueprint `default`, or a `derive` result. A key
+	 *   falling back to its own value-object's default fires nothing — so
+	 *   `demo()` fires only the derived keys.
+	 * - It sees the value **before** the value-object validates it: the
+	 *   business rule precedes the schema.
+	 * - On construction, `raw` shows siblings built earlier already normalised
+	 *   and siblings built later as `undefined` — blueprint order, exactly as
+	 *   `derive` already behaves.
+	 * - On mutation it fires **per attempted write**, not per effective change:
+	 *   whether a value actually differs is only known after it is built, and
+	 *   running the handlers first is what keeps `setMany` atomic.
+	 *
+	 * **Must be a prototype method, never a class field**, and must be pure —
+	 * the base invokes it inside the constructor, before the `[Context]` slot
+	 * exists, so it must not read `this`. That is exactly why the handlers take
+	 * the raw payload as an argument.
+	 *
+	 * @returns The handler map, keyed by blueprint property.
+	 *
+	 * @see `SetHandlersOf` in `./types/set-handlers-of.type` — the returned shape.
+	 * @see `blueprint` in `./helpers/blueprint` — the producing side, for a
+	 *   value a rule computes rather than checks.
+	 *
+	 * @example
+	 * ```ts
+	 * class Post extends entityOf(postProperties, "post") {
+	 *   protected override onSet(): SetHandlersOf<typeof postProperties> {
+	 *     return {
+	 *       title: (value, raw) => {
+	 *         if (raw.hidden && value.length > 40)
+	 *           throw new InvalidPropertyException("title", "post");
+	 *       },
+	 *     };
+	 *   }
+	 * }
+	 * ```
+	 */
+	protected onSet(): SetHandlersOf<PropertiesShape> {
+		return {};
 	}
 
 	/**
@@ -573,7 +541,10 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	public toJSON(): SerializedEntity<PropertiesShape> {
 		return Object.fromEntries(
 			Object.entries(
-				this[Context] as Record<string, AnyValueObject | AnyEntity | undefined>,
+				this[Context] as Record<
+					string,
+					AnyValueObject | AnyEntity | AnyRecord | undefined
+				>,
 			)
 				.filter(([, property]) => property !== undefined)
 				.map(([key, property]) => [
@@ -604,19 +575,22 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	public toSafeJSON(): SerializedEntity<PropertiesShape> {
 		return Object.fromEntries(
 			Object.entries(
-				this[Context] as Record<string, AnyValueObject | AnyEntity | undefined>,
+				this[Context] as Record<
+					string,
+					AnyValueObject | AnyEntity | AnyRecord | undefined
+				>,
 			)
 				.filter(([, property]) => property !== undefined)
 				.map(([key, property]) => [
 					key,
-					isEntity(property)
-						? property.toSafeJSON()
-						: redactIfSensitive(
+					isValueObject(property)
+						? redactIfSensitive(
 								this.#sensitive,
 								key,
 								this[Source],
-								(property as AnyValueObject).value,
-							),
+								property.value,
+							)
+						: (property as AnyEntity | AnyRecord).toSafeJSON(),
 				]),
 		) as SerializedEntity<PropertiesShape>;
 	}
@@ -682,6 +656,10 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * `protected`, same as {@link Entity.set} — the mutation primitive itself
 	 * is off-limits to external code, not just its one-key wrapper.
 	 *
+	 * Every key carrying an {@link Entity.onSet} handler runs it first, on the
+	 * still-raw value: before the build phase, so a handler that throws leaves
+	 * the entity untouched.
+	 *
 	 * @param values - A partial map of blueprint keys to raw input values.
 	 * @returns `true` when at least one value differed from the current one and
 	 *   `updatedAt` was stamped, `false` when every value matched (including
@@ -691,6 +669,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 *   (`id`/`createdAt`/`updatedAt`); they are readable, never writable.
 	 * @throws `InvalidPropertyException` — when a key is outside the blueprint
 	 *   or a value fails validation.
+	 * @throws `InvalidEntityDefinitionException` — when `onSet` is a class field.
 	 */
 	protected setMany(values: Partial<InputValuesOf<PropertiesShape>>): boolean {
 		const entries = Object.entries(values);
@@ -703,6 +682,29 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 				throw new InvalidPropertyException(key, this[Source]);
 		}
 
+		const domain = this[Context] as Record<
+			string,
+			AnyValueObject | AnyEntity | AnyRecord
+		>;
+
+		const handlers = readSetHandlers(this, "Entity");
+
+		// Before the build phase, so a throwing handler leaves the entity
+		// untouched — the same atomicity the build/assign split already gives.
+		// The snapshot is only assembled when a handler is actually going to
+		// run, keeping the handler-less path free of the extra pass.
+		if (entries.some(([key]) => handlers[key] !== undefined)) {
+			const raw: Record<string, unknown> = {};
+
+			for (const key of Object.keys(this[Properties]))
+				raw[key] = domain[key] === undefined ? undefined : rawOf(domain[key]);
+
+			for (const [key, value] of entries) raw[key] = value;
+
+			for (const [key, value] of entries)
+				if (value !== undefined) handlers[key]?.(value as never, raw as never);
+		}
+
 		const built = entries.map(
 			([key, value]) =>
 				[
@@ -711,14 +713,10 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 				] as const,
 		);
 
-		const domain = this[Context] as Record<string, AnyValueObject | AnyEntity>;
-
 		let changed = false;
 
 		for (const [key, next] of built) {
-			const current = domain[key] as AnyValueObject | AnyEntity;
-
-			if (deepEquals(rawOf(current), rawOf(next))) continue;
+			if (deepEquals(rawOf(domain[key]), rawOf(next))) continue;
 
 			domain[key] = next;
 			changed = true;
@@ -765,9 +763,10 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		if (property === undefined)
 			return undefined as ReadValueOf<PropertiesShape, Key>;
 
-		return (
-			isEntity(property) ? property : (property as AnyValueObject).value
-		) as ReadValueOf<PropertiesShape, Key>;
+		return (isValueObject(property) ? property.value : property) as ReadValueOf<
+			PropertiesShape,
+			Key
+		>;
 	}
 
 	/**
@@ -957,9 +956,14 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		if (options?.deep !== true) return own;
 
 		const nested = Object.values(
-			this[Context] as Record<string, AnyValueObject | AnyEntity | undefined>,
+			this[Context] as Record<
+				string,
+				AnyValueObject | AnyEntity | AnyRecord | undefined
+			>,
 		).flatMap((property) =>
-			isEntity(property) ? property.pullDomainEvents({ deep: true }) : [],
+			property !== undefined && !isValueObject(property)
+				? (property as AnyEntity | AnyRecord).pullDomainEvents({ deep: true })
+				: [],
 		);
 
 		return [...own, ...nested];

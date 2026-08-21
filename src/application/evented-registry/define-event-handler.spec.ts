@@ -249,3 +249,81 @@ describe("defineEventHandler used with eventedRegistry", () => {
 		expect((errors[0] as Error).message).toBe("boom");
 	});
 });
+
+/**
+ * The `Siblings` type argument on the reaction side. `eventedRegistry` has
+ * always handed every reaction a `commands` bag (see its `react`), but until
+ * `WithSiblingCommands` existed the only way to see it was to write
+ * `commands: { sendReceipt: CommandRunner<…> }` into `Deps` by hand.
+ */
+const sendReceiptProperties = { total: NumberVO };
+class SendReceiptCommand extends Command<
+	typeof sendReceiptProperties,
+	{ readonly receipts: number[] },
+	Order
+> {
+	protected defineCommand(): CommandDefinition<typeof sendReceiptProperties> {
+		return { properties: sendReceiptProperties, source: "send-receipt" };
+	}
+
+	public async execute({
+		receipts,
+	}: {
+		readonly receipts: number[];
+	}): Promise<CommandResult<Order>> {
+		receipts.push(this.get("total"));
+
+		return { result: new Order({ total: this.get("total") }), events: [] };
+	}
+}
+
+describe("defineEventHandler — Siblings", () => {
+	it("derives a typed commands bag from the sibling classes it names", async () => {
+		const receipts: number[] = [];
+
+		// `unknown` in the Deps slot: this reaction reads nothing but commands,
+		// and `unknown & { commands: … }` reduces to the bag alone.
+		const SendReceiptOnOrderConfirmed = defineEventHandler<
+			OrderConfirmed,
+			unknown,
+			{ sendReceipt: typeof SendReceiptCommand }
+		>(async (event, deps) => {
+			// Payload and result both typed straight off SendReceiptCommand.
+			const { result } = await deps.commands.sendReceipt({
+				total: event.total,
+			});
+
+			receipts.push(result.get("total"));
+		});
+
+		const registry = eventedRegistry(
+			{ confirmOrder: ConfirmOrderCommand, sendReceipt: SendReceiptCommand },
+			fakeEmitter(),
+		)
+			.withDependencies({ receipts })
+			.on(OrderConfirmed, SendReceiptOnOrderConfirmed);
+
+		await registry.get("confirmOrder")({ total: 7 });
+
+		expect(receipts).toEqual([7, 7]);
+	});
+
+	it("leaves Deps untouched when Siblings is omitted", () => {
+		const Handler = defineEventHandler<OrderConfirmed, TrackerDeps>(
+			async (_event, deps) => {
+				deps.tracker.record("ok");
+			},
+		);
+
+		type HandlerDeps = Parameters<InstanceType<typeof Handler>["handle"]>[1];
+		type Assert<T extends true> = T;
+
+		// The `[keyof Siblings] extends [never]` guard: the default must resolve
+		// to `Deps` itself, never `Deps & { commands: {} }`.
+		type _NoCommandsKey = Assert<
+			"commands" extends keyof HandlerDeps ? false : true
+		>;
+
+		expect(typeof new Handler().handle).toBe("function");
+	});
+});

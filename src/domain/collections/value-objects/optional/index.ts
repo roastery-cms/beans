@@ -32,6 +32,7 @@
  * - {@link OptionalPositiveDoubleVO}  — fixed-precision decimal `>= 0`.
  * - {@link OptionalPositiveIntegerVO} — whole number `>= 0`.
  * - {@link OptionalPositiveNumberVO}  — number `>= 0`.
+ * - {@link OptionalSchemaVO}          — JSON-serialized TypeBox schema or `undefined` (still checked to compile).
  * - {@link OptionalSimpleUrlVO}       — any-protocol URI or `undefined`.
  * - {@link OptionalSlugVO}            — URL-safe slug or `undefined` (still slugifies a real value).
  * - {@link OptionalStringVO}          — string of any length or `undefined`.
@@ -54,6 +55,7 @@ export { OptionalPasswordVO } from "./optional-password.value-object";
 export { OptionalPositiveDoubleVO } from "./optional-positive-double.value-object";
 export { OptionalPositiveIntegerVO } from "./optional-positive-integer.value-object";
 export { OptionalPositiveNumberVO } from "./optional-positive-number.value-object";
+export { OptionalSchemaVO } from "./optional-schema.value-object";
 export { OptionalSimpleUrlVO } from "./optional-simple-url.value-object";
 export { OptionalSlugVO } from "./optional-slug.value-object";
 export { OptionalStringVO } from "./optional-string.value-object";

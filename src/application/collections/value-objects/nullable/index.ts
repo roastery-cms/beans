@@ -22,6 +22,7 @@
  * - {@link NullablePositiveDoubleVO}  — fixed-precision decimal `>= 0`.
  * - {@link NullablePositiveIntegerVO} — whole number `>= 0`.
  * - {@link NullablePositiveNumberVO}  — number `>= 0`.
+ * - {@link NullableSchemaVO}          — JSON-serialized TypeBox schema or `null` (still checked to compile).
  * - {@link NullableSimpleUrlVO}       — any-protocol URI or `null`.
  * - {@link NullableSlugVO}            — URL-safe slug or `null` (still slugifies a real value).
  * - {@link NullableStringVO}          — string of any length or `null`.
@@ -45,6 +46,7 @@ export {
 	NullablePositiveDoubleVO,
 	NullablePositiveIntegerVO,
 	NullablePositiveNumberVO,
+	NullableSchemaVO,
 	NullableSimpleUrlVO,
 	NullableSlugVO,
 	NullableStringArrayVO,

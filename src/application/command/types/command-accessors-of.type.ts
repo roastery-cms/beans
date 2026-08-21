@@ -1,6 +1,6 @@
 import type { CommandDomainKeys } from "./command-domain-keys.type";
 import type { CommandPropertiesShapeBase } from "./command-properties-shape-base.type";
-import type { CommandRawValueOf } from "./command-raw-value-of.type";
+import type { CommandReadValueOf } from "./command-read-value-of.type";
 
 /**
  * The read-only accessors a `Command` derives from its blueprint: one
@@ -25,5 +25,5 @@ import type { CommandRawValueOf } from "./command-raw-value-of.type";
  * ```
  */
 export type CommandAccessorsOf<Shape extends CommandPropertiesShapeBase> = {
-	readonly [Key in CommandDomainKeys<Shape>]: CommandRawValueOf<Shape[Key]>;
+	readonly [Key in CommandDomainKeys<Shape>]: CommandReadValueOf<Shape, Key>;
 };

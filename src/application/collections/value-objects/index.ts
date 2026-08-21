@@ -21,6 +21,7 @@
  * - {@link PositiveDoubleVO}  — fixed-precision decimal `>= 0`.
  * - {@link PositiveIntegerVO} — whole number `>= 0`.
  * - {@link PositiveNumberVO}  — number `>= 0`.
+ * - {@link SchemaVO}          — JSON-serialized TypeBox schema, checked to compile.
  * - {@link SimpleUrlVO}       — URI of any protocol.
  * - {@link SlugVO}            — URL-safe identifier (auto-slugifies via `transform`).
  * - {@link StringVO}          — string of any length (reuses `StringSchema`).
@@ -44,6 +45,7 @@ export {
 	PositiveDoubleVO,
 	PositiveIntegerVO,
 	PositiveNumberVO,
+	SchemaVO,
 	SimpleUrlVO,
 	SlugVO,
 	StringArrayVO,

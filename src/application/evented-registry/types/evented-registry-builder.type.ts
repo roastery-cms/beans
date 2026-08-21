@@ -1,5 +1,5 @@
 import type { CommandRegistrySpecBase } from "@/application/command-registry/types";
-import type { IEventedRegistry } from "./ievented-registry.interface";
+import type { EventedRegistryOf } from "./evented-registry-of.type";
 
 /**
  * What `eventedRegistry(spec, emitter)` returns: the second half of the
@@ -20,9 +20,10 @@ export type EventedRegistryBuilder<Spec extends CommandRegistrySpecBase> = {
 	 *   members stay narrow enough for `RegistrableEventHandlerClass` to gate on.
 	 * @param dependencies - The dependency record every registered command's
 	 *   `execute()`, and every reaction's `handle()`, will be called with.
-	 * @returns The registry — see `IEventedRegistry`.
+	 * @returns The registry — `.get(key)`/`.on(...)` plus one accessor per
+	 *   registrable spec key, see {@link EventedRegistryOf}.
 	 */
 	withDependencies<const Dependencies>(
 		dependencies: Dependencies,
-	): IEventedRegistry<Spec, Dependencies>;
+	): EventedRegistryOf<Spec, Dependencies>;
 };

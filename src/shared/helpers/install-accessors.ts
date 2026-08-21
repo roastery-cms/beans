@@ -5,9 +5,9 @@ import { PropertyNameCollisionException } from "@roastery/terroir/exceptions/dom
  * prototype object itself so subclass chains can be walked and re-installation
  * short-circuits.
  *
- * One registry for both pillars is correct rather than merely convenient: an
- * `Entity` prototype and a `Command` prototype are distinct objects, so they
- * can never collide as keys.
+ * One registry for every pillar is correct rather than merely convenient: an
+ * `Entity`, a `DomainRecord` and a `Command` prototype are distinct objects,
+ * so they can never collide as keys.
  */
 const accessors = new WeakMap<object, ReadonlySet<string>>();
 
@@ -42,16 +42,16 @@ function inheritedAccessorKeys(prototype: object): Set<string> {
  * any accessor is defined, so a rejected attempt leaves the prototype
  * untouched and the next attempt throws again.
  *
- * Shared by both pillars, and identical for each: the getter only ever
+ * Shared by every pillar, and identical for each: the getter only ever
  * delegates to `this.get(key)`, so whatever a pillar's `get` does with the
- * key — an `Entity` returning a nested instance, a `Command` returning a
- * plain value — is already handled there rather than here. Only the label
- * quoted in the exception message differs.
+ * key — an `Entity` or `DomainRecord` returning a nested instance, a
+ * `Command` returning a plain value — is already handled there rather than
+ * here. Only the label quoted in the exception message differs.
  *
  * @param prototype - The class prototype to install on.
  * @param properties - The blueprint whose keys become accessors.
- * @param source - Entity- or command-type name, used as the `source` of the
- *   exception.
+ * @param source - Entity-, record- or command-type name, used as the `source`
+ *   of the exception.
  * @param label - Which pillar is installing, for the exception message.
  *
  * @throws `PropertyNameCollisionException` — when a blueprint key collides
@@ -62,7 +62,7 @@ export function installAccessors(
 	prototype: object,
 	properties: Readonly<Record<string, unknown>>,
 	source: string,
-	label: "Command" | "Entity",
+	label: "Command" | "Entity" | "Record",
 ): void {
 	if (accessors.has(prototype)) return;
 

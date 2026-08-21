@@ -34,9 +34,9 @@ import type { CommandResult } from "./types/command-result.type";
  * parameter is always named here (it has to forward to `handle(deps)`), a
  * `Deps = void` command built on `AggregateCommand` resolves through
  * `DepsOfClass` as `void` rather than the `unknown` a hand-written
- * `execute()` without a parameter would infer. `RegistrableKeys` and
- * `DirectlyRegistrableKeys` already treat both outcomes identically — that
- * double branch exists precisely for this — so registration through
+ * `execute()` without a parameter would infer. `RegistrableKeys` already
+ * treats both outcomes identically, at either depth — that double branch
+ * exists precisely for this — so registration through
  * `commandRegistry`/`eventedRegistry` is unaffected either way.
  *
  * @typeParam Shape - The command's blueprint shape: one `ValueObject` class
@@ -50,7 +50,7 @@ import type { CommandResult } from "./types/command-result.type";
  *   the single-aggregate-result case above.
  * @see `collectResult` in `@roastery/beans/application/command/helpers` —
  *   what `execute()` now calls on the subclass's behalf.
- * @see `command-registry`'s `DepsOfClass` — the `void`/`unknown` nuance
+ * @see `DepsOfClass` in `./types/deps-of-class.type` — the `void`/`unknown` nuance
  *   noted above.
  *
  * @example

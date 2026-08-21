@@ -34,7 +34,7 @@ export interface IEntity<
 	/** Stable entity-type identifier (e.g. `"post"`), from `defineEntity()`. */
 	readonly [Source]: string;
 
-	/** The blueprint: one `ValueObject`/`Entity` class per domain property. */
+	/** The blueprint: one `ValueObject`/`Entity`/`DomainRecord` class per domain property. */
 	readonly [Properties]: PropertiesShape;
 
 	/** The built property map: identity VOs plus one instance per blueprint key. */
@@ -65,7 +65,7 @@ export interface IEntity<
 	/** JSON-string form of {@link IEntity.toSafeJSON} — safe to log. */
 	toString(): string;
 
-	/** Reads one key: identity string, nested instance, or wrapped raw value. */
+	/** Reads one key: identity string, nested entity/record instance, or wrapped raw value. */
 	get<Key extends ReadableKey<PropertiesShape>>(
 		key: Key,
 	): ReadValueOf<PropertiesShape, Key>;
@@ -76,7 +76,7 @@ export interface IEntity<
 	/** Whether the key was declared sensitive, by its value-object or by the definition. */
 	isSensitive<Key extends ReadableKey<PropertiesShape>>(key: Key): boolean;
 
-	/** Drains the buffered domain events raised via `raiseEvent`, emptying the buffer; `deep` drains nested entities too. */
+	/** Drains the buffered domain events raised via `raiseEvent`, emptying the buffer; `deep` drains nested entities too, including any reached through a nested record. */
 	pullDomainEvents(options?: {
 		readonly deep?: boolean;
 	}): readonly IDomainEvent[];

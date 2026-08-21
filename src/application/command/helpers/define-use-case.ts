@@ -2,6 +2,8 @@ import type {
 	AggregateCommandClassOf,
 	CommandDefinition,
 	CommandPropertiesShapeBase,
+	CommandRegistrySpecBase,
+	WithSiblingCommands,
 } from "@/application/command/types";
 import type { IDomainEvent } from "@/domain/domain-event/types";
 import { aggregateCommandOf } from "./aggregate-command-of";
@@ -32,6 +34,12 @@ import { aggregateCommandOf } from "./aggregate-command-of";
  * @typeParam Shape - The blueprint shape: one `ValueObject` class per field.
  * @typeParam Deps - The dependencies `handle()` takes.
  * @typeParam Result - The single aggregate `handle()` produces.
+ * @typeParam Siblings - Sibling use cases this one reaches through
+ *   `deps.commands`, given as a map of registry key to command **class**
+ *   (`{ login: typeof LoginCommand }`). The `commands` bag both registries
+ *   already inject at runtime is derived from it and merged into `Deps`, so
+ *   nothing has to be spelled out in `CommandRunner<...>` terms by hand.
+ *   Empty by default, which leaves `Deps` exactly as given.
  *
  * @param properties - The blueprint. Value-objects only.
  * @param source - Stable name for this use case (e.g. `"create-user"`).
@@ -49,10 +57,15 @@ export function defineUseCase<
 			readonly deep?: boolean;
 		}): readonly IDomainEvent[];
 	},
+	Siblings extends CommandRegistrySpecBase = Record<never, never>,
 >(
 	properties: Shape,
 	source: string,
 	extra?: Omit<CommandDefinition<Shape>, "properties" | "source">,
-): AggregateCommandClassOf<Shape, Deps, Result> {
-	return aggregateCommandOf<Shape, Deps, Result>(properties, source, extra);
+): AggregateCommandClassOf<Shape, WithSiblingCommands<Deps, Siblings>, Result> {
+	return aggregateCommandOf<Shape, Deps, Result, Siblings>(
+		properties,
+		source,
+		extra,
+	);
 }

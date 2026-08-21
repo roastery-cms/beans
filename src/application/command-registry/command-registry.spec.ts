@@ -8,10 +8,15 @@ import { DomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
 import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
 import { LoopDetectedException } from "@roastery/terroir/exceptions/application";
-import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
+import {
+	InvalidPropertyException,
+	PropertyNameCollisionException,
+} from "@roastery/terroir/exceptions/domain";
 import { describe, expect, it } from "bun:test";
 import { commandRegistry } from "./command-registry";
-import type { CommandRunner } from "./types";
+import type { RegistrableKeys } from "./types/registrable-keys.type";
+import type { SiblingCommands } from "./types/sibling-commands.type";
+import type { CommandRunner, CommandRunnersOf } from "./types";
 
 /** Payload-less event — used only to prove events survive the registry's runner. */
 class BeanPlanted extends DomainEvent {
@@ -214,6 +219,38 @@ class UpdateUserCommand extends Command<
 	}
 }
 
+describe("RegistrableKeys — the depth flag", () => {
+	it("caps the sibling bag at one hop: `false` sees only the raw record", () => {
+		type Spec = {
+			login: typeof UserLoginCommand;
+			updateUser: typeof UpdateUserCommand;
+		};
+		type Deps = { secrets: SecretsService };
+		type Assert<T extends true> = T;
+		type Equal<A, B> =
+			(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+				? true
+				: false;
+
+		// Depth 1 (the default `.get()` uses): `updateUser` becomes registrable
+		// because `login` is reachable through the `commands` bag.
+		type _Full = Assert<
+			Equal<RegistrableKeys<Spec, Deps>, "login" | "updateUser">
+		>;
+
+		// Depth 0 (what `SiblingCommands` builds its key set from): only what
+		// the raw record satisfies on its own. This is the former
+		// `DirectlyRegistrableKeys`, now the same type at a different depth.
+		type _Direct = Assert<Equal<RegistrableKeys<Spec, Deps, false>, "login">>;
+
+		// Which is what keeps the bag itself from promising a sibling `.get()`
+		// cannot prove safe.
+		type _Bag = Assert<Equal<keyof SiblingCommands<Spec, Deps>, "login">>;
+
+		expect(true).toBe(true);
+	});
+});
+
 describe("commandRegistry — sibling command composition", () => {
 	it("lets a command reach an already-registered sibling through deps.commands", async () => {
 		const checked: Array<[string, string]> = [];
@@ -273,7 +310,7 @@ describe("commandRegistry — sibling command composition", () => {
 
 /**
  * Two commands that call each other through `deps.commands` — neither is
- * `DirectlyRegistrableKeys` (each needs `commands` itself), so `.get()`
+ * `RegistrableKeys<Spec, Deps, false>` (each needs `commands` itself), so `.get()`
  * rejects both at compile time, same as the block above. Reaching them
  * still requires the same bypass any real cycle in this system needs: a
  * caller who sidesteps TypeScript, exactly as `RegistrableKeys`'s own TSDoc
@@ -340,5 +377,123 @@ describe("commandRegistry — sibling command cycles", () => {
 			expect(error).toBeInstanceOf(LoopDetectedException);
 			expect((error as LoopDetectedException).source).toBe("command-registry");
 		}
+	});
+});
+
+describe("commandRegistry — direct key access", () => {
+	it("runs a command through `registry.<key>(payload)` exactly as `.get(key)(payload)` does", async () => {
+		const logs: string[] = [];
+		const registry = commandRegistry({
+			renameTag: RenameTagCommand,
+			plantBean: PlantBeanCommand,
+		}).withDependencies({ logger: { log: (m: string) => logs.push(m) } });
+
+		const direct = await registry.renameTag({ name: "hello" });
+		const explicit = await registry.get("renameTag")({ name: "hello" });
+		const planted = await registry.plantBean({ name: "arabica" });
+
+		expect(direct.result).toBe("hello");
+		expect(direct.result).toBe(explicit.result);
+		expect(planted.result).toBeInstanceOf(Bean);
+		expect(planted.events.map((event) => event.name)).toEqual(["bean.planted"]);
+		expect(logs).toEqual(["planting"]);
+	});
+
+	it("surfaces the same runner both ways — `.get(key)` and the accessor are one function", () => {
+		const registry = commandRegistry({
+			renameTag: RenameTagCommand,
+		}).withDependencies({});
+
+		expect(registry.renameTag).toBe(registry.get("renameTag"));
+	});
+
+	it("gates the accessor by the very same RegistrableKeys `.get()` is gated by", () => {
+		const registry = commandRegistry({
+			renameTag: RenameTagCommand,
+			plantBean: PlantBeanCommand,
+		}).withDependencies({}); // no `logger` at all
+
+		// @ts-expect-error — PlantBeanCommand needs `logger`, absent from this dependency record.
+		registry.plantBean;
+		// `renameTag` declares `Deps = void`, so it stays reachable.
+		expect(typeof registry.renameTag).toBe("function");
+	});
+
+	it("keys the accessor set by exactly RegistrableKeys, at the same depth", () => {
+		type Spec = {
+			login: typeof UserLoginCommand;
+			updateUser: typeof UpdateUserCommand;
+		};
+		type Deps = { secrets: SecretsService };
+		type Assert<T extends true> = T;
+		type Equal<A, B> =
+			(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+				? true
+				: false;
+
+		type _Keys = Assert<
+			Equal<keyof CommandRunnersOf<Spec, Deps>, "login" | "updateUser">
+		>;
+		type _SameAsGate = Assert<
+			Equal<keyof CommandRunnersOf<Spec, Deps>, RegistrableKeys<Spec, Deps>>
+		>;
+
+		expect(true).toBe(true);
+	});
+
+	it("composes siblings through the direct form", async () => {
+		const registry = commandRegistry({
+			login: UserLoginCommand,
+			updateUser: UpdateUserCommand,
+		}).withDependencies({
+			secrets: {
+				check: async (_hash: string, candidate: string) =>
+					candidate === "correct",
+			},
+		});
+
+		const { result } = await registry.updateUser({ password: "correct" });
+
+		expect(result).toBe("updated");
+	});
+
+	it("still throws LoopDetectedException on a cycle reached through the direct form", async () => {
+		const registry = commandRegistry({
+			a: CycleACommand,
+			b: CycleBCommand,
+		}).withDependencies({});
+
+		// Same compile-time bypass the `.get()` cycle test needs, for the same
+		// reason: neither key is `RegistrableKeys`, so neither is an accessor
+		// the type exposes — while the runtime installs both, as documented.
+		const run = (
+			registry as unknown as { a: CommandRunner<typeof CycleACommand> }
+		).a;
+
+		expect(run({ label: "a" })).rejects.toBeInstanceOf(LoopDetectedException);
+	});
+
+	it("throws PropertyNameCollisionException when a spec key collides with `get`", () => {
+		const build = () =>
+			commandRegistry({ get: RenameTagCommand }).withDependencies({});
+
+		expect(build).toThrow(PropertyNameCollisionException);
+
+		try {
+			build();
+			expect.unreachable("should have thrown");
+		} catch (error) {
+			expect((error as PropertyNameCollisionException).property).toBe("get");
+			expect((error as PropertyNameCollisionException).source).toBe(
+				"command-registry",
+			);
+		}
+	});
+
+	it("rejects a key inherited from Object.prototype too, not only an own member", () => {
+		const build = () =>
+			commandRegistry({ toString: RenameTagCommand }).withDependencies({});
+
+		expect(build).toThrow(PropertyNameCollisionException);
 	});
 });

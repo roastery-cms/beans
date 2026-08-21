@@ -3,6 +3,8 @@ import type {
 	CommandClassOf,
 	CommandDefinition,
 	CommandPropertiesShapeBase,
+	CommandRegistrySpecBase,
+	WithSiblingCommands,
 } from "@/application/command/types";
 
 /**
@@ -24,6 +26,12 @@ import type {
  * @typeParam Shape - The blueprint shape: one `ValueObject` class per field.
  * @typeParam Deps - The dependencies `execute()` takes.
  * @typeParam Result - The domain value `execute()` produces.
+ * @typeParam Siblings - Sibling commands this one reaches through
+ *   `deps.commands`, given as a map of registry key to command **class**
+ *   (`{ login: typeof LoginCommand }`). The `commands` bag both registries
+ *   already inject at runtime is derived from it and merged into `Deps`, so
+ *   nothing has to be spelled out in `CommandRunner<...>` terms by hand.
+ *   Empty by default, which leaves `Deps` exactly as given.
  *
  * @param properties - The blueprint. Value-objects only — never a nested
  *   `Entity` or `Command`.
@@ -55,15 +63,20 @@ export function commandOf<
 	Shape extends CommandPropertiesShapeBase,
 	Deps,
 	Result,
+	Siblings extends CommandRegistrySpecBase = Record<never, never>,
 >(
 	properties: Shape,
 	source: string,
 	extra?: Omit<CommandDefinition<Shape>, "properties" | "source">,
-): CommandClassOf<Shape, Deps, Result> {
+): CommandClassOf<Shape, WithSiblingCommands<Deps, Siblings>, Result> {
 	// Stamped as a static rather than closed over, for the same reason
 	// `entityOf` does it: `defineCommand` must stay pure and prototype-borne,
 	// since `fromJSON` reads it off an `Object.create` probe.
-	abstract class BlueprintCommand extends BoundCommand<Shape, Deps, Result> {
+	abstract class BlueprintCommand extends BoundCommand<
+		Shape,
+		WithSiblingCommands<Deps, Siblings>,
+		Result
+	> {
 		public static readonly definition: CommandDefinition<Shape> = {
 			...extra,
 			properties,
@@ -73,5 +86,9 @@ export function commandOf<
 
 	// The cast covers the accessors alone — installed on the prototype at
 	// construction, so the class expression cannot describe them.
-	return BlueprintCommand as unknown as CommandClassOf<Shape, Deps, Result>;
+	return BlueprintCommand as unknown as CommandClassOf<
+		Shape,
+		WithSiblingCommands<Deps, Siblings>,
+		Result
+	>;
 }

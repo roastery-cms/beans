@@ -1,4 +1,4 @@
-import type { CommandResult } from "@/application/command/types";
+import type { CommandResult } from "./command-result.type";
 import type { AnyCommandClass } from "./any-command-class.type";
 
 /**

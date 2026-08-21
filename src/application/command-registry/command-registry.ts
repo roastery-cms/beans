@@ -1,10 +1,15 @@
 import { LoopDetectedException } from "@roastery/terroir/exceptions/application";
-import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
-import type { AnyCommandClass } from "./types/any-command-class.type";
+import {
+	InvalidPropertyException,
+	PropertyNameCollisionException,
+} from "@roastery/terroir/exceptions/domain";
+import type {
+	AnyCommandClass,
+	CommandRegistrySpecBase,
+	CommandRunner,
+} from "@/application/command/types";
 import type { CommandRegistryBuilder } from "./types/command-registry-builder.type";
-import type { CommandRegistrySpecBase } from "./types/command-registry-spec-base.type";
-import type { CommandRunner } from "./types/command-runner.type";
-import type { ICommandRegistry } from "./types/icommand-registry.interface";
+import type { CommandRegistryOf } from "./types/command-registry-of.type";
 
 /**
  * Builds the exception a sibling-command chain throws when a key it is
@@ -71,6 +76,59 @@ function buildCommands<Spec extends CommandRegistrySpecBase>(
 }
 
 /**
+ * Installs one accessor per spec key onto a finished registry, so a command
+ * runs as `registry.createUser(payload)` and not only as
+ * `registry.get("createUser")(payload)`.
+ *
+ * @remarks
+ * Atomic, exactly as `installAccessors` is: every collision is checked
+ * before any property is defined, so a rejected install leaves the registry
+ * object untouched instead of half-populated. The test is `key in registry`
+ * rather than `Object.hasOwn`, for the same reason it is there — a spec key
+ * called `toString` or `constructor` would otherwise shadow an inherited
+ * member of `Object.prototype`.
+ *
+ * Installs **every** `Object.keys(spec)` entry, not only the registrable
+ * ones: registrability is a compile-time notion with no runtime footprint to
+ * read (`Deps` keys no symbol slot), so the type withholds what the runtime
+ * cannot. That is the gate's long-standing posture, unchanged here.
+ *
+ * @param registry - The registry object to install onto, carrying its named
+ *   members (`get`, and `on` for the evented registry) already.
+ * @param spec - The registry's command spec — its keys become the accessors.
+ * @param commands - One ready-to-run runner per spec key.
+ * @param source - `"command-registry"` or `"evented-registry"`, used as the
+ *   `source` of the exception.
+ *
+ * @throws `PropertyNameCollisionException` — when a spec key collides with a
+ *   member the registry already carries (`get`, `on`, `toString`, …).
+ */
+export function installRunners(
+	registry: object,
+	spec: Readonly<Record<string, unknown>>,
+	commands: Readonly<Record<string, CommandRunner<AnyCommandClass>>>,
+	source: "command-registry" | "evented-registry",
+): void {
+	const keys = Object.keys(spec);
+
+	for (const key of keys)
+		if (key in registry)
+			throw new PropertyNameCollisionException(
+				key,
+				source,
+				`${source}: the spec key "${key}" collides with an existing member of the registry and cannot become a direct accessor. Rename it, or reach it through .get("${key}").`,
+			);
+
+	for (const key of keys)
+		Object.defineProperty(registry, key, {
+			configurable: false,
+			enumerable: true,
+			value: commands[key],
+			writable: false,
+		});
+}
+
+/**
  * Declares a registry gating access to a set of `Command` subclasses by
  * their declared dependencies — entirely at compile time.
  *
@@ -91,9 +149,15 @@ function buildCommands<Spec extends CommandRegistrySpecBase>(
  *   updateUser: UpdateUserCommand, // Deps names `commands: { login: CommandRunner<typeof UserLoginCommand> } }`
  * }).withDependencies({ secrets, users });
  *
- * const { result, events } = await registry.get("updateUser")(payload);
+ * const { result, events } = await registry.updateUser(payload);
  * // ^ internally calls deps.commands.login(...) — see `SiblingCommands`
+ *
+ * const key = "updateUser" as const; // held in a variable: .get() is the way out
+ * await registry.get(key)(payload);
  * ```
+ *
+ * @throws `PropertyNameCollisionException` — from `withDependencies`, when a
+ *   spec key collides with a member the registry already carries (`get`).
  *
  * @throws {@link LoopDetectedException} if a sibling-command chain reached
  *   through `deps.commands` calls back into a key already on its own call
@@ -108,17 +172,25 @@ export function commandRegistry<const Spec extends CommandRegistrySpecBase>(
 	return {
 		withDependencies<const Dependencies>(
 			dependencies: Dependencies,
-		): ICommandRegistry<Spec, Dependencies> {
+		): CommandRegistryOf<Spec, Dependencies> {
 			const commands = buildCommands(spec, dependencies as object, new Set());
 
-			return {
-				get(key) {
+			const registry = {
+				get(key: string) {
 					if (!Object.hasOwn(spec, key))
 						throw new InvalidPropertyException(String(key), "command-registry");
 
-					return commands[key as string] as never;
+					return commands[key];
 				},
 			};
+
+			installRunners(registry, spec, commands, "command-registry");
+
+			// Pragmatic cast — same spirit as `buildCommands`'s own: the
+			// accessors are installed reflectively, so TypeScript cannot see
+			// them on the object literal, and `get`'s generic key/return
+			// correlation is not something a plain method can carry either.
+			return registry as unknown as CommandRegistryOf<Spec, Dependencies>;
 		},
 	};
 }

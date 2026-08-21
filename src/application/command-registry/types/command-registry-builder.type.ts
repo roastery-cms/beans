@@ -1,5 +1,5 @@
-import type { CommandRegistrySpecBase } from "./command-registry-spec-base.type";
-import type { ICommandRegistry } from "./icommand-registry.interface";
+import type { CommandRegistrySpecBase } from "@/application/command/types";
+import type { CommandRegistryOf } from "./command-registry-of.type";
 
 /**
  * What `commandRegistry(spec)` returns: the second half of the two-phase
@@ -21,9 +21,10 @@ export type CommandRegistryBuilder<Spec extends CommandRegistrySpecBase> = {
 	 *   members stay narrow enough for {@link RegistrableKeys} to gate on.
 	 * @param dependencies - The dependency record every registered command's
 	 *   `execute()` will be called with.
-	 * @returns The registry — see `ICommandRegistry.get`.
+	 * @returns The registry — `.get(key)` plus one accessor per registrable
+	 *   spec key, see {@link CommandRegistryOf}.
 	 */
 	withDependencies<const Dependencies>(
 		dependencies: Dependencies,
-	): ICommandRegistry<Spec, Dependencies>;
+	): CommandRegistryOf<Spec, Dependencies>;
 };

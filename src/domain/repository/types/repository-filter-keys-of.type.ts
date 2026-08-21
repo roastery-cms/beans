@@ -1,5 +1,6 @@
 import type { IRawEntity, PropertiesShapeBase } from "@/domain/entity/types";
 import type { AnyEntityClass } from "@/domain/entity/types/any-entity-class.type";
+import type { AnyRecordClass } from "@/domain/record/types/any-record-class.type";
 import type { AnyValueObjectClass } from "@/domain/entity/types/any-value-object-class.type";
 import type { DomainKeys } from "@/domain/entity/types/domain-keys.type";
 import type { IsSensitiveValueObjectClass } from "@/domain/value-object/types/is-sensitive-value-object-class.type";
@@ -60,10 +61,12 @@ export type RepositoryFilterKeysOf<
 	| {
 			[Key in DomainKeys<PropertiesShape>]: PropertiesShape[Key] extends AnyEntityClass
 				? never
-				: PropertiesShape[Key] extends AnyValueObjectClass
-					? IsSensitiveValueObjectClass<PropertiesShape[Key]> extends true
-						? never
-						: Key
-					: never;
+				: PropertiesShape[Key] extends AnyRecordClass
+					? never
+					: PropertiesShape[Key] extends AnyValueObjectClass
+						? IsSensitiveValueObjectClass<PropertiesShape[Key]> extends true
+							? never
+							: Key
+						: never;
 	  }[DomainKeys<PropertiesShape>]
 	| keyof IRawEntity;

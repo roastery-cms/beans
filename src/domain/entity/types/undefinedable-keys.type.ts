@@ -16,15 +16,18 @@ import type { PropertiesShapeBase } from "./properties-shape-base.type";
  * teaches the *type* what the runtime already does — no change to
  * `buildContext`, `applyRuleDefaults` or `modelFor` is needed.
  *
- * Only value-object properties are considered: a nested-entity-typed property
- * is never itself `undefined` (its `InputValueOf` is always an object,
- * `NestedEntityInput<Class> & IdentityInput`), and checking it through
- * `InputValueOf` would recurse back into this same type for a
- * self-referencing blueprint (`{ child: Node }`), which TypeScript rejects as
- * a circular mapped type before it ever gets to resolve to `false`. Reading
- * `["prototype"]["value"]` directly — the same sub-expression `InputValueOf`
- * itself uses for its value-object branch — gets the same answer without ever
- * looking at the entity branch.
+ * Only value-object properties are considered: a nested entity or record is
+ * never itself `undefined` (its `InputValueOf` is always an object), and
+ * checking it through `InputValueOf` would recurse back into this same type
+ * for a self-referencing blueprint (`{ child: Node }`), which TypeScript
+ * rejects as a circular mapped type before it ever gets to resolve to
+ * `false`. Reading `["prototype"]["value"]` directly — the same
+ * sub-expression `InputValueOf` itself uses for its value-object branch —
+ * gets the same answer without ever looking at the two nested branches.
+ *
+ * That is what keeps a record blueprint self-referencing through
+ * `NestedRecordInput` expressible at the type level too; the cycle is still
+ * rejected at runtime, by `CyclicEntityDefinitionException`.
  *
  * @typeParam PropertiesShape - The entity's blueprint shape.
  *

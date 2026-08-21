@@ -1,15 +1,19 @@
+import type { AnyRecordClass } from "@/domain/record/types/any-record-class.type";
 import type { AnyValueObjectClass } from "./any-value-object-class.type";
 
 /**
- * The raw wrapped value of one blueprint property's `ValueObject` class.
+ * The **serialized** form of one command blueprint property: the return of
+ * `toJSON()` for a nested record, the wrapped `value` for a value-object.
  *
- * Simpler than the entity pillar's `RawValueOf`: since a `Command` blueprint
- * only ever holds value-objects, there is no nested-entity branch to
- * discriminate — every property reads back as its VO's `value`. The same
- * type also serves as the input-side value: a value-object's constructor
- * accepts exactly the `ValueType` it exposes as `.value`.
+ * @typeParam Class - The blueprint property class.
  *
- * @typeParam Class - The blueprint property's value-object class.
+ * @see {@link CommandInputValueOf} — the input-side counterpart, where a
+ *   nested record's own rules relax its payload.
  */
-export type CommandRawValueOf<Class extends AnyValueObjectClass> =
-	Class["prototype"]["value"];
+export type CommandRawValueOf<
+	Class extends AnyValueObjectClass | AnyRecordClass,
+> = Class extends AnyRecordClass
+	? ReturnType<Class["prototype"]["toJSON"]>
+	: Class extends AnyValueObjectClass
+		? Class["prototype"]["value"]
+		: never;

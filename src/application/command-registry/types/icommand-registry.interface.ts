@@ -1,14 +1,22 @@
-import type { CommandRegistrySpecBase } from "./command-registry-spec-base.type";
-import type { CommandRunner } from "./command-runner.type";
+import type { CommandRegistrySpecBase } from "@/application/command/types";
+import type { CommandRunner } from "@/application/command/types";
 import type { RegistrableKeys } from "./registrable-keys.type";
 
 /**
- * What `commandRegistry(spec).withDependencies(deps)` returns: a single
- * `get`, resolving a spec key to a ready-to-run bound function.
+ * The **named** members of a finished registry: `get`, resolving a spec key
+ * to a ready-to-run bound function.
+ *
+ * @remarks
+ * Only half of what `withDependencies` actually returns — the per-key
+ * accessors (`registry.createUser(payload)`) are a mapped type, which an
+ * interface cannot declare, and are intersected in by `CommandRegistryOf`.
+ * This stays an ordinary interface so it remains the place `.get`'s contract
+ * is documented and the thing `IEventedRegistry` extends.
  *
  * @typeParam Spec - The registry's command spec.
  * @typeParam Dependencies - The dependency record supplied to `withDependencies`.
- * @see `CommandRegistryBuilder.withDependencies` — returns this.
+ * @see `CommandRegistryOf` — the full return type, accessors included.
+ * @see `CommandRegistryBuilder.withDependencies` — returns that.
  */
 export interface ICommandRegistry<
 	Spec extends CommandRegistrySpecBase,
@@ -17,6 +25,10 @@ export interface ICommandRegistry<
 	/**
 	 * Resolves a spec key to a bound function that constructs the command and
 	 * `execute()`s it with the stored dependency record.
+	 *
+	 * Kept alongside the direct form (`registry.createUser(payload)`) as the
+	 * way out for a key held in a variable, or a key whose name is not a
+	 * valid identifier.
 	 *
 	 * @typeParam Key - Narrowed to {@link RegistrableKeys} — a key whose
 	 *   command's `Deps` this registry's `Dependencies` doesn't structurally

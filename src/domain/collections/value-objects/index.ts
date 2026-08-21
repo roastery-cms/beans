@@ -22,6 +22,7 @@
  * - {@link PositiveDoubleVO}  — fixed-precision decimal `>= 0`.
  * - {@link PositiveIntegerVO} — whole number `>= 0`.
  * - {@link PositiveNumberVO}  — number `>= 0`.
+ * - {@link SchemaVO}          — JSON-serialized TypeBox schema, checked to compile.
  * - {@link SimpleUrlVO}       — URI of any protocol.
  * - {@link SlugVO}            — URL-safe identifier (auto-slugifies via `transform`).
  * - {@link StringVO}          — string of any length (reuses `StringSchema`).
@@ -44,6 +45,7 @@ export { PasswordVO } from "./password.value-object";
 export { PositiveDoubleVO } from "./positive-double.value-object";
 export { PositiveIntegerVO } from "./positive-integer.value-object";
 export { PositiveNumberVO } from "./positive-number.value-object";
+export { SchemaVO } from "./schema.value-object";
 export { SimpleUrlVO } from "./simple-url.value-object";
 export { SlugVO } from "./slug.value-object";
 export { StringVO } from "./string.value-object";

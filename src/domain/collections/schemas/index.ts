@@ -24,6 +24,7 @@
  * - {@link PositiveDoubleSchema}  — fixed-precision decimal `>= 0`.
  * - {@link PositiveIntegerSchema} — whole number `>= 0`.
  * - {@link PositiveNumberSchema}  — number `>= 0`.
+ * - {@link SchemaSchema}          — JSON-serialized TypeBox schema.
  * - {@link SimpleUrlSchema}       — any-protocol URI.
  * - {@link SlugSchema}            — URL-safe slug.
  * - {@link StringSchema}          — string of any length.
@@ -48,6 +49,7 @@ export { PasswordSchema } from "./password.schema";
 export { PositiveDoubleSchema } from "./positive-double.schema";
 export { PositiveIntegerSchema } from "./positive-integer.schema";
 export { PositiveNumberSchema } from "./positive-number.schema";
+export { SchemaSchema } from "./schema.schema";
 export { SimpleUrlSchema } from "./simple-url.schema";
 export { SlugSchema } from "./slug.schema";
 export { StringSchema } from "./string.schema";

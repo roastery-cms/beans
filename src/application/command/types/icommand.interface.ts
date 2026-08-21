@@ -2,7 +2,7 @@ import type { Context, Properties, Source } from "@roastery/terroir/symbols";
 import type { CommandContextOf } from "./command-context-of.type";
 import type { CommandDomainKeys } from "./command-domain-keys.type";
 import type { CommandPropertiesShapeBase } from "./command-properties-shape-base.type";
-import type { CommandRawValueOf } from "./command-raw-value-of.type";
+import type { CommandReadValueOf } from "./command-read-value-of.type";
 import type { CommandResult } from "./command-result.type";
 import type { CommandSchemaOf } from "./command-schema-of.type";
 import type { SerializedCommand } from "./serialized-command.type";
@@ -50,7 +50,7 @@ export interface ICommand<
 	/** Reads one blueprint key's raw value. */
 	get<Key extends CommandDomainKeys<Shape>>(
 		key: Key,
-	): CommandRawValueOf<Shape[Key]>;
+	): CommandReadValueOf<Shape, Key>;
 
 	/** Orchestrates the command's behaviour, resolving to its result and any domain events raised along the way. */
 	execute(deps: Deps): Promise<CommandResult<Result>>;

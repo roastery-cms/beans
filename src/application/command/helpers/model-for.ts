@@ -1,4 +1,7 @@
+import { modelFor as recordModelFor } from "@/domain/record/helpers/model-for";
+import { definitionOf as recordDefinitionOf } from "@/domain/record/helpers/read-definition";
 import { metaOf } from "@/domain/value-object/helpers";
+import { isRecordClass } from "@/shared/helpers/is-record-class";
 import { t } from "@roastery/terroir";
 import { SchemaManager } from "@roastery/terroir/schema";
 import type { AnyValueObjectClass } from "../types/any-value-object-class.type";
@@ -68,7 +71,17 @@ export function modelFor(properties: CommandPropertiesShapeBase): t.TObject {
 
 	const shape: t.TProperties = {};
 	for (const [key, propertyClass] of Object.entries(properties)) {
-		const model = modelOfValueObject(propertyClass);
+		// A record-valued key delegates into the record pillar rather than
+		// recursing here: this function knows nothing about nested blueprints,
+		// and the record pillar already owns the memo and the cycle guard.
+		if (isRecordClass(propertyClass)) {
+			const nested = recordDefinitionOf(propertyClass);
+
+			shape[key] = recordModelFor(nested.properties, nested.source);
+			continue;
+		}
+
+		const model = modelOfValueObject(propertyClass as AnyValueObjectClass);
 
 		shape[key] = acceptsUndefined(model) ? t.Optional(model) : model;
 	}

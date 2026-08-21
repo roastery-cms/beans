@@ -125,13 +125,14 @@ Where those choices have consequences a caller can actually run into, they are g
 ## The building blocks
 
 - **Entity** *(domain)* — Blueprint-driven base class: validated construction, `toJSON`/`fromJSON`, atomic `set`/`setMany` with automatic `updatedAt` stamping, typed accessors, nested aggregates, a transient `[Storage]` slot, a domain-event buffer, and `destroy()`. `id` (UUID v7), `createdAt` and `updatedAt` come built in.
+- **DomainRecord** *(domain)* — An `Entity` **minus identity**: no `id`/`createdAt`/`updatedAt`, never a row, but everything else — blueprint-derived schema, strict hydration, `demo()`, blueprint rules, redaction, and `protected` `set`/`setMany`. For the composite domain values that deserve verbs (`Money`, `Address`, `DateRange`) instead of being flattened into a `customObjectVO`. Usable as a key of an entity, a command or another record.
 - **ValueObject** *(domain)* — Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()`; validation runs in the constructor.
 - **DomainEvent** *(domain)* — Optional abstract base for the events an `Entity` raises, plus `defineDomainEvent(name)` (a factory building a payload-less event class from just its name), three TC39 lifecycle decorators (`onCreate`, `onUpdate`, `onDelete`) that raise them automatically at a fixed point, and two TC39 method decorators (`emit`, `onError`) that raise them around an arbitrary instance method — `emit` once it has run to completion, `onError` when it throws.
 - **Collections** *(domain, aliased under application)* — The Value Object / schema catalog and the custom factories described above.
 - **Command** *(application)* — Blueprint-driven base for orchestrating domain behaviour behind a validated input, resolving to a `CommandResult` (`{ result, events }`). **AggregateCommand** specializes it for a single-aggregate result: `execute()` comes already implemented, the subclass writes `handle()` instead.
 - **Repository** *(domain)* — Type-only ports derived from an entity's blueprint: `RepositoryOf<typeof User, Spec>` builds the contract an adapter implements, out of granular `ICan*` capabilities a use case asks for in its `Deps`. `findByEmail` exists only because the entity declares `email`. **inMemoryRepositoryOf** *(testing)* generates a working double for that same contract, from the same blueprint.
 - **CommandRegistry** *(application)* — Two-phase builder (`commandRegistry(spec).withDependencies(deps)`) that gates access to a set of `Command` subclasses by their declared dependencies, entirely at compile time, and hands back a ready-to-run bound function per command via `get()`. **EventedRegistry** is the same builder, gaining event publishing and reactions (`.on(eventClass, handlerClass)`).
-- **The Roastery Way** *(`@roastery/beans/way`, spans both layers)* — One import path for the low-ceremony subset above: `entityOf`, the value-object catalog, `defineDomainEvent`, `defineUseCase`, `defineEventHandler`, `commandRegistry`, `eventedRegistry`. Re-exports only — nothing new is implemented.
+- **The Roastery Way** *(`@roastery/beans/way`, spans both layers)* — One import path for the low-ceremony subset above: `entityOf`, `recordOf`, the value-object catalog, `defineDomainEvent`, `defineUseCase`, `defineEventHandler`, `commandRegistry`, `eventedRegistry`. Re-exports only — nothing new is implemented.
 
 ## Technologies
 
@@ -185,7 +186,7 @@ bun link @roastery/beans
 
 ```typescript
 import {
-  blueprint, entityOf,
+  blueprint, entityOf, recordOf,
   defineDomainEvent, defineUseCase,
   defineEventHandler, commandRegistry, eventedRegistry,
 } from "@roastery/beans/way";
@@ -219,7 +220,7 @@ const registry = eventedRegistry({ plantBean: PlantBean }, emitter)
   .withDependencies({ beans, logger })
   .on(BeanPlanted, LogBeanPlanted);
 
-const { result } = await registry.get("plantBean")({ name: "Arabica" });
+const { result } = await registry.plantBean({ name: "Arabica" });
 ```
 
 ### Start without events
@@ -231,10 +232,10 @@ import { commandRegistry } from "@roastery/beans/way";
 
 const registry = commandRegistry({ plantBean: PlantBean }).withDependencies({ beans });
 
-const { result, events } = await registry.get("plantBean")({ name: "Arabica" });
+const { result, events } = await registry.plantBean({ name: "Arabica" });
 ```
 
-Same spec, same `.get(key)` returning a ready-to-run function, same `CommandResult` — `events` and all. **Nothing is given up by starting here**: events are still raised by the aggregate and still collected into the result; what is opt-in is *publishing* them. `eventedRegistry` is built on `commandRegistry` and delegates construction and execution to it wholesale, so moving up later is a change of registry, not of use cases — the spec, the dependencies and every `defineUseCase` stay exactly as they are.
+Same spec, same ready-to-run function per key, same `CommandResult` — `events` and all. **Nothing is given up by starting here**: events are still raised by the aggregate and still collected into the result; what is opt-in is *publishing* them. `eventedRegistry` is built on `commandRegistry` and delegates construction and execution to it wholesale, so moving up later is a change of registry, not of use cases — the spec, the dependencies and every `defineUseCase` stay exactly as they are.
 
 **This is not a third layer.** `domain` and `application` are still the only two layers `beans` has — every name `@roastery/beans/way` (and its `/collections/*` subpath) exports is re-exported verbatim from its original home in one of them; nothing is reimplemented, and the barrel has no behaviour of its own. It's a curated cross-cutting index, picking only the entries whose whole design goal was already minimizing ceremony:
 
@@ -367,6 +368,43 @@ A key backed by an [`Optional*VO`](#optional--nullable-value-objects) (or any `o
 Two phases (`blueprint(…).with(…)`) because a literal cannot reference its own `typeof`: the first call fixes the shape, which is what makes `raw` fully typed inside `with`. A blueprint with no rules stays a plain object literal, exactly as before.
 
 > **Where the `Rules` symbol lives.** In `@roastery/terroir/symbols`, exactly like the other slots below — terroir 0.2.1 ships it, so this package declares no symbol of its own. `grep -rn 'Symbol("' src` returns nothing, and it must stay that way: symbol equality is by reference, so a local redeclaration would key a *different* slot and every rule would silently stop resolving.
+
+### Property rules with `onSet`
+
+`blueprint().with()` **produces** values. `onSet()` **checks** them: a protected, empty-by-default hook on `Entity` and `DomainRecord` that declares one handler per blueprint key, run on the raw value just before that property is built — on construction and on every mutation alike.
+
+```typescript
+class Post extends entityOf(postProperties, "post") {
+	protected override onSet(): SetHandlersOf<typeof postProperties> {
+		return {
+			title: (value, raw) => {
+				if (raw.hidden && value.length > 40)
+					throw new InvalidPropertyException("title", "post");
+			},
+		};
+	}
+
+	public rename(title: string): void {
+		this.set("title", title); // the handler runs here too
+	}
+}
+```
+
+A handler returns `void`: it enforces by **throwing**, and the exception is the domain's own choice. It never rewrites the value — normalising stays the value-object's `transform`.
+
+| Aspect | Behaviour |
+|--------|-----------|
+| When | `new X({…})`, `fromJSON`, `demo()`, `set` and `setMany` — every path that sets a value |
+| Which keys | only a key that has a raw value to set: an explicit payload value, a blueprint `default`, or a `derive` result. A key falling back to its own value-object's default fires nothing, so `demo()` fires only the derived keys |
+| `value` | the raw value, typed from the property's class — `string` for a `StringVO` key, the nested payload for an entity- or record-valued one |
+| `raw` | the same read-only view a `derive` rule gets. On construction: blueprint order, earlier siblings already normalised, later ones still `undefined`. On mutation: the current values overlaid by the batch being written |
+| Ordering | **before** the value-object validates — the business rule precedes the schema |
+| Atomicity | handlers all run before the build phase, so one that throws leaves the entity untouched and stamps no `updatedAt` |
+| Per write, not per change | on mutation it fires for every key named, even one whose value turns out to be unchanged; whether a value differs is only known after it is built |
+
+Two rules, the same ones `defineEntity`/`defineRecord` carry: **`onSet` must be a prototype method, never a class field**, and it must be **pure** — the base invokes it inside the constructor, before the context slot exists, so it must not read `this`. That is exactly why the handlers take `raw` as an argument. The class-field mistake is only half detectable (during construction the field does not exist yet to be found), so the guard throws `InvalidEntityDefinitionException` on the first mutation rather than letting the rule stay silently dead.
+
+`DomainRecord.onSet()` is identical, typed `RecordSetHandlersOf<…>`. `Command` has no `onSet`: it never mutates, and its input validation is already re-tagged at the application boundary.
 
 ### Slot symbols
 
@@ -607,6 +645,65 @@ order.shipOrFail();  // if it throws: raises OrderShippingFailed built from the 
 
 ---
 
+## DomainRecord
+
+An `Entity` minus identity. No `id`, no `createdAt`, no `updatedAt`, no repository port derived from it — a record is never a row. Everything else an entity has, it has: a schema derived from the blueprint, strict hydration, `demo()`, blueprint rules, redaction, nesting, and mutation through `set`/`setMany`.
+
+It exists for the composite domain values that deserve behaviour. Without it, a `Money` is a `customObjectVO` that validates its shape and can do nothing else; with it, `Money` has verbs and the ubiquitous language survives into the type.
+
+```typescript
+import { recordOf } from "@roastery/beans/domain/record";
+import { IntegerVO, StringVO } from "@roastery/beans/domain/collections/value-objects";
+
+const moneyProperties = { amount: IntegerVO, currency: StringVO };
+
+class Money extends recordOf(moneyProperties, "money") {
+  public add(cents: number): boolean {
+    return this.set("amount", this.amount + cents); // protected — only the verbs mutate
+  }
+
+  public isFree(): boolean {
+    return this.amount === 0;
+  }
+}
+
+const price = new Money({ amount: 1000, currency: "BRL" });
+
+price.amount;       // 1000 — typed accessor
+price.add(500);     // true, it changed
+price.toJSON();     // { amount: 1500, currency: "BRL" } — no identity fields
+Money.demo();       // built from the declared defaults
+```
+
+The hand-written form works too, and is the one to reach for when the definition is computed rather than stated — `extends DomainRecord<typeof moneyProperties>` plus `defineRecord()` and the `interface Money extends RecordAccessorsOf<typeof moneyProperties> {}` merge, exactly mirroring `Entity`.
+
+### As a blueprint key
+
+A record can be a key of an **entity**, a **command** or another **record**, and its own blueprint accepts value-objects, entities and records alike.
+
+```typescript
+class Post extends entityOf({ title: StringVO, price: Money }, "post") {}
+
+const post = new Post({ title: "Beans", price: { amount: 1000, currency: "BRL" } });
+
+post.price;            // the Money instance — reads chain into its verbs
+post.price.add(500);   // works
+post.price.isFree();   // false
+```
+
+Key rules:
+
+- **`defineRecord` must be a prototype method, never a class field**, and must be pure — the same trap and the same `InvalidEntityDefinitionException` guard as `defineEntity`/`defineMeta`.
+- **`set`/`setMany` are `protected`.** Nothing outside the class may mutate a record; only the verbs it declares. `setMany` is atomic (validate all, build all, then assign), and its returned `boolean` is the **only** signal that something changed — there is no `updatedAt` to compare.
+- **A blueprint key may not be `id`, `createdAt` or `updatedAt`.** A record does not have identity and may not fake it; the attempt throws `PropertyNameCollisionException`.
+- **`toJSON()` never redacts** (it is the persistence contract and must round-trip through `fromJSON`); `toSafeJSON()`, `toString()` and the inspect hook do — the same asymmetry `Entity` has, not `Command`'s.
+- **A record raises no domain events.** There is no `[Events]` slot and no `raiseEvent`: an event belongs to an aggregate root, and a record has no identity to report as its `aggregateId`. It *does* forward `pullDomainEvents({ deep: true })` into the entities it nests, so their buffers are never stranded behind it; the shallow form always returns `[]`.
+- **No `[Storage]`, no `destroy()`.** Both exist for something with a lifecycle of its own; a record's lifecycle is its owner's.
+- **The lifecycle and method decorators do not apply.** All five end in `raiseEvent`. `onUpdate` is the tempting one — a record does have `setMany` — and it will fail at call time.
+- **Mutating a nested record does not stamp the parent's `updatedAt`.** `post.price.add(500)` changes the record in place; `post.set("price", raw)` is what stamps. Same as a nested entity, but far more visible here, since a record exists *to* have verbs.
+
+---
+
 ## ValueObject
 
 Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()` — the schema that validates the value and the default used in demo mode. Validation runs inside the base constructor, so an instance can never exist unvalidated.
@@ -656,6 +753,7 @@ One VO per primitive, all on the self-validating base. The numeric family is a g
 | `PositiveDoubleVO` | `number` | Decimal `>= 0`, rounded to 2 places |
 | `PositiveIntegerVO` | `number` | Whole number `>= 0` |
 | `PositiveNumberVO` | `number` | Number `>= 0` |
+| `SchemaVO` | `string` | JSON-serialized TypeBox schema, checked to compile — with `match()` and `from()` |
 | `SimpleUrlVO` | `string` | URI of any protocol |
 | `SlugVO` | `string` | Auto-slugified string (`transform`) |
 | `StringVO` | `string` | String of any length — no `minLength` |
@@ -674,6 +772,37 @@ const slug = new SlugVO("My Post", context);  // .value === "my-post"
 const now = DateTimeVO.now(context);          // wraps the current ISO timestamp
 const flag = BooleanVO.from(1, context);      // .value === true
 ```
+
+#### `SchemaVO`: when a schema is itself domain data
+
+Most of the catalog wraps a primitive. `SchemaVO` wraps a **JSON-serialized TypeBox schema** — the wire form `SchemaManager.serialize` produces — for the case the shape of some data is decided at runtime rather than at compile time. A CMS whose post types each declare the shape of their own payload is the motivating example:
+
+```typescript
+import { t } from "@roastery/terroir";
+import { SchemaManager } from "@roastery/terroir/schema";
+import { SchemaVO } from "@roastery/beans/domain/collections/value-objects";
+import { customRecordVO } from "@roastery/beans/domain/collections/value-objects/custom";
+
+class PostType extends entityOf({ name: StringVO, shape: SchemaVO }, "post-type") {}
+
+const review = new PostType({
+  name: "Review",
+  shape: SchemaManager.serialize(t.Object({ author: t.String(), score: t.Number() })),
+});
+
+// `shape` reads back as the wire string, which is what `match` takes.
+SchemaVO.match(review.shape, { author: "Alan", score: 9 }); // true
+SchemaVO.match(review.shape, { author: "Alan" });           // false — `score` missing
+
+// Or build the value-object directly, serializing on the way in:
+SchemaVO.from(t.Object({ author: t.String() }), { name: "shape", source: "post-type" });
+```
+
+- **The stored value is the wire string, not a live `TSchema`** — a hydrated schema carries a non-enumerable `[Kind]` symbol that `JSON.stringify` strips, so an entity holding one would not round-trip through `fromJSON`.
+- **Validation is two layers, and both are needed.** `SchemaSchema`'s `json` format answers "does this parse"; no JSON Schema can extend that to "and does TypeBox compile it", so `validate()` asks the second question by hydrating. `'{"type":"banana"}'` passes the first and fails the second.
+- **`match()` takes the VO or a raw wire string**, and only the string form can throw: an instance is compilable by class invariant. It raises `InvalidPropertyException` rather than answering `false`, because "that is not a schema" and "that did not match" are different answers.
+- **`demo()` yields `"{}"`**, which TypeBox hydrates as `Any` — the schema that accepts everything. Right for a fixture, and worth noticing in production: a value that fell back to the default is validating nothing.
+- **Hydration is memoized by wire string.** `SchemaManager` caches compiled validators by schema *object*, and `build` mints a fresh one every call, so an un-memoized `match` recompiles every time (3.53 µs against 0.010 µs). Constructing the VO warms that cache.
 
 ### Optional & nullable value objects
 
@@ -704,7 +833,7 @@ new Post({ title: "Hi", deletedAt: null });          // deletedAt stated explici
 new Post({ title: "Hi", deletedAt: undefined });     // ✗ compile error — deletedAt is not optional
 ```
 
-Both are just the corresponding VO's schema wrapped with `optionalVO`/`nullableVO` (below) — `OptionalSlugVO`/`NullableSlugVO` are the one exception that also re-declare `SlugVO`'s `slugify` transform, guarded against `undefined`/`null` respectively. Neither mirrors the required VOs' sugar statics (`BooleanVO.truthy/falsy/from`, `DateTimeVO.now`, `UuidVO.generate`).
+Both are just the corresponding VO's schema wrapped with `optionalVO`/`nullableVO` (below), with two families of exception. `OptionalSlugVO`/`NullableSlugVO` (and the six `Integer`/`Double` variants) re-declare their counterpart's `transform`; `OptionalSchemaVO`/`NullableSchemaVO` re-declare `SchemaVO`'s `validate`. Both exist for the same reason — the factories wrap a *schema*, not a VO's overrides — and both are guarded against `undefined`/`null` respectively. Neither subpath mirrors the required VOs' sugar statics (`BooleanVO.truthy/falsy/from`, `DateTimeVO.now`, `UuidVO.generate`, `SchemaVO.match/from`).
 
 ### Custom value objects
 
@@ -938,7 +1067,7 @@ class CreateUserCommand extends aggregateCommandOf<typeof createUserProperties, 
 
 ## Command Registry
 
-`commandRegistry` gates access to a set of `Command` subclasses by their declared dependencies — entirely at compile time. Declare the spec, then supply the dependency record once; `.get(key)` hands back a function already bound to it.
+`commandRegistry` gates access to a set of `Command` subclasses by their declared dependencies — entirely at compile time. Declare the spec, then supply the dependency record once; every registrable key is a function on the registry, already bound to it.
 
 ```typescript
 import { commandRegistry } from "@roastery/beans/application/command-registry";
@@ -950,7 +1079,7 @@ const registry = commandRegistry({
   renameTag: RenameTagCommand,     // Deps = void — needs nothing
 }).withDependencies({ secrets, users });
 
-const { result: user, events } = await registry.get("createUser")({
+const { result: user, events } = await registry.createUser({
   email: "alan@roastery.dev",
   name: "Alan",
   password: "hunter2222",
@@ -960,13 +1089,39 @@ await eventPublisher.publishAll(events);
 
 Key rules:
 
-- **`.get(key)` returns a ready-to-run bound function, not the class and not an unexecuted instance.** `registry.get("createUser")(payload)` constructs `CreateUserCommand` with `payload` and immediately calls `.execute(dependencies)` on it, using the record `withDependencies` was given — resolving to the same `CommandResult<Result>` `execute()` itself returns.
+- **`registry.<key>(payload)` returns a ready-to-run bound function, not the class and not an unexecuted instance.** It constructs `CreateUserCommand` with `payload` and immediately calls `.execute(dependencies)` on it, using the record `withDependencies` was given — resolving to the same `CommandResult<Result>` `execute()` itself returns.
+- **`.get(key)` is the same function, reached the long way** — `registry.get("createUser")` and `registry.createUser` are one and the same value. Keep it for a key held in a variable, or a key whose name is not a valid identifier; reach for the direct form everywhere else.
+- **The accessors are gated by exactly the rule `.get()` is gated by.** A key whose `Deps` the supplied record doesn't satisfy is simply absent from the registry's type, so `registry.plantBean` is a compile error rather than a runtime surprise. The **runtime** installs one property per spec key regardless, since registrability has no runtime footprint to read — the same compile-time-only posture the next rule states.
+- **A spec key colliding with a member the registry already carries (`get`; also `on`, for `eventedRegistry`) throws `PropertyNameCollisionException`** from `withDependencies`, before any accessor is installed. Rename the key, or drop to `.get("get")`.
 - **The "only registrable if its dependencies are present" rule is compile-time only.** A key whose command's `Deps` the supplied dependency record doesn't structurally satisfy is a type error on `.get()`, never a runtime check — `Command` itself gains no new member, symbol, or slot for this. Nothing stops a caller who bypasses TypeScript.
 - **A command declaring `Deps = void` is always registrable**, no matter what the dependency record contains — it reads nothing from `execute`'s argument.
 - **An unknown key at runtime throws `InvalidPropertyException`** — the same exception `Command.get()` already reuses for its own "key the blueprint never declared" guard.
 - **This is not a DI container.** `commandRegistry` doesn't resolve, construct, or scope anything — the dependency record is whatever plain object you already built, passed through unchanged to every command's `execute()`. It only decides which commands are reachable through `.get()`.
 - **The gate is structural, not exact.** A dependency record whose nested methods are merely *bivariantly* compatible with what a command's `Deps` declares (TypeScript's own carve-out for method-shorthand members) can satisfy the check without truly being a safe substitute — the same limitation `Command`'s own `execute` already lives with.
 - **A runtime guard backs the compile-time gate.** The compile-time proof above still caps at one hop, but composition itself has no depth limit at runtime — a chain that calls back into a command key already on its own call chain (`A → commands.B → commands.A`, at any depth, including a caller who bypasses the gate above) throws `LoopDetectedException` (HTTP 508) instead of recursing until the call stack overflows.
+
+- **A command names its siblings by class, and the `commands` bag types itself.** Both registries have always *injected* that bag; declaring it used to mean writing `commands: { login: CommandRunner<typeof LoginCommand> }` into `Deps` by hand. Pass the sibling classes as the factory's fourth type argument instead:
+
+```typescript
+import { defineUseCase } from "@roastery/beans/way";
+import type { WithSiblingCommands } from "@roastery/beans/application/command/types";
+
+type Deps = { users: UserRepository };
+type Siblings = { login: typeof LoginCommand }; // classes, never runners
+
+class UpdateUser extends defineUseCase<typeof updateUserProperties, Deps, User, Siblings>(
+  updateUserProperties,
+  "update-user",
+) {
+  protected async handle(deps: WithSiblingCommands<Deps, Siblings>): Promise<User> {
+    const { result: authenticated } = await deps.commands.login({ password: this.password });
+    // ^ payload and result both derived from LoginCommand itself
+    ...
+  }
+}
+```
+
+  `commandOf` and `aggregateCommandOf` take the same fourth parameter, and both `defineEventHandler` overloads take it third — a reaction needing only the bag passes `unknown` in the `Deps` slot first (`defineEventHandler<OrderConfirmed, unknown, Siblings>`), since `unknown & { commands: … }` reduces to the bag alone. Omit it entirely and `Deps` is left exactly as written, which is what keeps every existing command unaffected. It changes nothing at runtime and nothing about the gate: a use case reachable only *through* another sibling's `commands` is still not provably safe, and `.get()` still withholds it.
 
 ---
 
@@ -978,7 +1133,9 @@ Key rules:
 import { eventedRegistry } from "@roastery/beans/application/evented-registry";
 import type { IEventHandler } from "@roastery/beans/application/evented-registry/types";
 
-type SendReceiptDeps = { commands: { sendReceipt: CommandRunner<typeof SendReceiptCommand> } };
+// The sibling bag, derived from the class rather than spelled out in
+// `CommandRunner<…>` terms — see "A command names its siblings by class" above.
+type SendReceiptDeps = WithSiblingCommands<unknown, { sendReceipt: typeof SendReceiptCommand }>;
 
 class SendReceiptOnOrderConfirmed implements IEventHandler<OrderConfirmed, SendReceiptDeps> {
   public async handle(event: OrderConfirmed, deps: SendReceiptDeps): Promise<void> {
@@ -994,7 +1151,7 @@ const registry = eventedRegistry(
   .on(OrderConfirmed, SendReceiptOnOrderConfirmed);
 
 // resolves only after OrderConfirmed's reaction (and whatever it triggers) has run
-const { result } = await registry.get("confirmOrder")({ total: 100 });
+const { result } = await registry.confirmOrder({ total: 100 });
 ```
 
 `IEventEmitter` is a minimal, structural contract — `beans` implements no event bus of its own:
@@ -1417,7 +1574,7 @@ A `Command` never gains any of this: it is never persisted, so there is no set o
 
 ```typescript
 // Root barrel: the base classes, plus blueprint and DomainEvent alongside them
-import { blueprint, Command, DomainEvent, Entity, ValueObject } from "@roastery/beans";
+import { blueprint, Command, DomainEvent, DomainRecord, Entity, ValueObject } from "@roastery/beans";
 
 // Redaction is a package-wide switch, so it lives at the root rather than in a pillar
 import { configureRedaction, redactionConfig } from "@roastery/beans";
@@ -1459,9 +1616,28 @@ import type {
   RuledBlueprint,
   RulesOf,
   SerializedEntity,
+  SetHandlerOf,
+  SetHandlersOf,
 } from "@roastery/beans/domain/entity/types";
 import { onCreate, onUpdate, onDelete, emit, onError, fromClass } from "@roastery/beans/domain/entity/decorators";
 import type { BareDomainEventClass, EntityErrorEventFactory } from "@roastery/beans/domain/entity/decorators/types";
+
+// DomainRecord subpaths — DomainRecord itself is also at the root barrel above
+import { recordOf } from "@roastery/beans/domain/record/helpers";
+import type {
+  AnyRecordClass,
+  IRecord,
+  NestedRecordInput,
+  RawRecordContextOf,
+  RecordAccessorsOf,
+  RecordClassOf,
+  RecordDefinition,
+  RecordPropertiesShapeBase,
+  RecordRulesOf,
+  RecordSetHandlerOf,
+  RecordSetHandlersOf,
+  SerializedRecord,
+} from "@roastery/beans/domain/record/types";
 
 // DomainEvent subpaths — DomainEvent itself is also at the root barrel above
 import { defineDomainEvent } from "@roastery/beans/domain/domain-event";
@@ -1553,17 +1729,21 @@ import type {
   CommandAccessorsOf,
   CommandClassOf,
   CommandDefinition,
+  AnyCommandClass,
   CommandPropertiesShapeBase,
+  CommandRegistrySpecBase,
   CommandResult,
+  CommandRunner,
   ICommand,
   RawCommandContextOf,
   SerializedCommand,
+  WithSiblingCommands,
 } from "@roastery/beans/application/command/types";
 
 // CommandRegistry subpaths
 import { commandRegistry } from "@roastery/beans/application/command-registry";
 import type {
-  AnyCommandClass,
+  AnyCommandClass,        // re-exported — these three now live in application/command/types
   CommandRegistryBuilder,
   CommandRegistrySpecBase,
   CommandRunner,

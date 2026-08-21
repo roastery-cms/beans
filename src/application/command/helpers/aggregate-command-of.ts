@@ -3,6 +3,8 @@ import type {
 	AggregateCommandClassOf,
 	CommandDefinition,
 	CommandPropertiesShapeBase,
+	CommandRegistrySpecBase,
+	WithSiblingCommands,
 } from "@/application/command/types";
 import type { IDomainEvent } from "@/domain/domain-event/types";
 
@@ -28,6 +30,12 @@ import type { IDomainEvent } from "@/domain/domain-event/types";
  * @typeParam Deps - The dependencies `handle()` takes.
  * @typeParam Result - The single aggregate `handle()` produces; also what
  *   `CommandResult.events` is drained from.
+ * @typeParam Siblings - Sibling commands this one reaches through
+ *   `deps.commands`, given as a map of registry key to command **class**
+ *   (`{ login: typeof LoginCommand }`). The `commands` bag both registries
+ *   already inject at runtime is derived from it and merged into `Deps`, so
+ *   nothing has to be spelled out in `CommandRunner<...>` terms by hand.
+ *   Empty by default, which leaves `Deps` exactly as given.
  *
  * @param properties - The blueprint. Value-objects only — never a nested
  *   `Entity` or `Command`.
@@ -63,17 +71,18 @@ export function aggregateCommandOf<
 			readonly deep?: boolean;
 		}): readonly IDomainEvent[];
 	},
+	Siblings extends CommandRegistrySpecBase = Record<never, never>,
 >(
 	properties: Shape,
 	source: string,
 	extra?: Omit<CommandDefinition<Shape>, "properties" | "source">,
-): AggregateCommandClassOf<Shape, Deps, Result> {
+): AggregateCommandClassOf<Shape, WithSiblingCommands<Deps, Siblings>, Result> {
 	// Stamped as a static rather than closed over, for the same reason
 	// `commandOf` does it: `defineCommand` must stay pure and prototype-borne,
 	// since `fromJSON` reads it off an `Object.create` probe.
 	abstract class BlueprintAggregateCommand extends BoundAggregateCommand<
 		Shape,
-		Deps,
+		WithSiblingCommands<Deps, Siblings>,
 		Result
 	> {
 		public static readonly definition: CommandDefinition<Shape> = {
@@ -87,7 +96,7 @@ export function aggregateCommandOf<
 	// construction, so the class expression cannot describe them.
 	return BlueprintAggregateCommand as unknown as AggregateCommandClassOf<
 		Shape,
-		Deps,
+		WithSiblingCommands<Deps, Siblings>,
 		Result
 	>;
 }

@@ -1,10 +1,9 @@
-import type { ValueObject } from "@/domain/value-object";
-import type { t } from "@roastery/terroir";
 import { BadRequestException } from "@roastery/terroir/exceptions/application";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import { SchemaManager } from "@roastery/terroir/schema";
 import { Context, Demo, Properties, Source } from "@roastery/terroir/symbols";
 import { installAccessors } from "@/shared/helpers/install-accessors";
+import { isValueObject } from "@/shared/helpers/is-value-object";
 import { redactIfSensitive } from "@/shared/redaction/redact-if-sensitive";
 import { resolveSensitiveKeys } from "@/shared/redaction/resolve-sensitive-keys";
 import type { ISensitiveKey } from "@/shared/redaction/sensitive-keys-of";
@@ -17,7 +16,7 @@ import type { CommandDefinition } from "./types/command-definition.type";
 import type { CommandDomainKeys } from "./types/command-domain-keys.type";
 import type { CommandPropertiesOfClass } from "./types/command-properties-of-class.type";
 import type { CommandPropertiesShapeBase } from "./types/command-properties-shape-base.type";
-import type { CommandRawValueOf } from "./types/command-raw-value-of.type";
+import type { CommandReadValueOf } from "./types/command-read-value-of.type";
 import type { CommandResult } from "./types/command-result.type";
 import type { CommandSchemaOf } from "./types/command-schema-of.type";
 import type { ICommand } from "./types/icommand.interface";
@@ -261,15 +260,22 @@ export abstract class Command<
 	 */
 	public toJSON(): SerializedCommand<Shape> {
 		return Object.fromEntries(
-			Object.entries(
-				this[Context] as Record<
-					string,
-					ValueObject<unknown, t.TSchema, boolean>
-				>,
-			).map(([key, vo]) => [
-				key,
-				redactIfSensitive(this.#sensitive, key, this[Source], vo.value),
-			]),
+			Object.entries(this[Context] as Record<string, unknown>).map(
+				([key, property]) => [
+					key,
+					// A nested record redacts through its own `toSafeJSON`, applying
+					// its own declared keys — the redacting half of the pair, since
+					// this pillar's `toJSON` is the one that redacts.
+					isValueObject(property)
+						? redactIfSensitive(
+								this.#sensitive,
+								key,
+								this[Source],
+								property.value,
+							)
+						: (property as { toSafeJSON(): unknown }).toSafeJSON(),
+				],
+			),
 		) as SerializedCommand<Shape>;
 	}
 
@@ -291,9 +297,10 @@ export abstract class Command<
 	}
 
 	/**
-	 * Reads one blueprint key's raw value. Always the wrapped value, never an
-	 * instance — a `Command` blueprint holds no nested entity, so reads do not
-	 * chain the way `Entity.get` does.
+	 * Reads one blueprint key: the wrapped raw value for a value-object, the
+	 * nested **instance** for a record-valued key — so a record's questions
+	 * stay reachable from inside `execute()`. A command blueprint still holds
+	 * no nested entity, so that branch never arises here.
 	 *
 	 * The unknown-key guard raises the same **domain-layer**
 	 * `InvalidPropertyException` `Entity.get` does, deliberately: asking for a
@@ -301,19 +308,21 @@ export abstract class Command<
 	 * input crossing the command's boundary.
 	 *
 	 * @param key - A blueprint key.
-	 * @returns The key's raw value.
+	 * @returns The key's raw value, or the nested record instance.
 	 *
 	 * @throws `InvalidPropertyException` — when the key is outside the blueprint.
 	 */
 	public get<Key extends CommandDomainKeys<Shape>>(
 		key: Key,
-	): CommandRawValueOf<Shape[Key]> {
+	): CommandReadValueOf<Shape, Key> {
 		if (!Object.hasOwn(this[Properties], key))
 			throw new InvalidPropertyException(String(key), this[Source]);
 
+		const property = (this[Context] as Record<string, unknown>)[key as string];
+
 		return (
-			this[Context] as Record<string, ValueObject<unknown, t.TSchema, boolean>>
-		)[key as string]!.value as CommandRawValueOf<Shape[Key]>;
+			isValueObject(property) ? property.value : property
+		) as CommandReadValueOf<Shape, Key>;
 	}
 
 	/**

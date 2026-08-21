@@ -8,7 +8,9 @@ import { NumberVO, StringVO } from "@/domain/collections/value-objects";
 import { DomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
 import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
+import type { IDomainEvent } from "@/domain/domain-event/types";
 import { LoopDetectedException } from "@roastery/terroir/exceptions/application";
+import { PropertyNameCollisionException } from "@roastery/terroir/exceptions/domain";
 import { describe, expect, it, spyOn } from "bun:test";
 import { eventedRegistry } from "./evented-registry";
 import type { IEventEmitter, IEventHandler } from "./types";
@@ -435,5 +437,88 @@ describe("eventedRegistry — compile-time gating", () => {
 
 		// @ts-expect-error — SendReceiptOnOrderConfirmed handles OrderConfirmed, not ReceiptSent.
 		registry.on(ReceiptSent, SendReceiptOnOrderConfirmed);
+	});
+});
+
+describe("eventedRegistry — direct key access", () => {
+	it("auto-publishes and reacts through the direct form exactly as `.get()` does", async () => {
+		const emitter = fakeEmitter();
+		const sent: Array<[string, number]> = [];
+		const registry = eventedRegistry(
+			{ confirmOrder: ConfirmOrderCommand, sendReceipt: SendReceiptCommand },
+			emitter,
+		)
+			.withDependencies({
+				mailer: {
+					send: (orderId: string, total: number) => sent.push([orderId, total]),
+				},
+			})
+			.on(OrderConfirmed, SendReceiptOnOrderConfirmed);
+
+		const { result } = await registry.confirmOrder({ total: 100 });
+
+		// The reaction — and the command it dispatched — already ran by the
+		// time the direct call resolved, same guarantee `.get()` carries.
+		expect(sent).toEqual([[result.id, 100]]);
+		expect(
+			emitter.emitted.map((event) => (event as IDomainEvent).name),
+		).toEqual(["order.confirmed", "receipt.sent"]);
+	});
+
+	it("installs this pillar's decorated runner, not the undecorated base one", async () => {
+		const emitter = fakeEmitter();
+		const registry = eventedRegistry(
+			{ confirmOrder: ConfirmOrderCommand },
+			emitter,
+		).withDependencies({});
+
+		expect(registry.confirmOrder).toBe(registry.get("confirmOrder"));
+
+		await registry.confirmOrder({ total: 7 });
+
+		expect(emitter.emitted).toHaveLength(1);
+	});
+
+	it("keeps the accessors on the identity `.on()` gives back, so chaining preserves them", async () => {
+		const calls: string[] = [];
+		const registry = eventedRegistry(
+			{ confirmOrder: ConfirmOrderCommand },
+			fakeEmitter(),
+		)
+			.withDependencies({
+				tracker: { record: (label: string) => calls.push(label) },
+			})
+			.on(OrderConfirmed, RecordFirst)
+			.on(OrderConfirmed, RecordSecond);
+
+		await registry.confirmOrder({ total: 1 });
+
+		expect(calls).toEqual(["first", "second"]);
+	});
+
+	it("throws PropertyNameCollisionException for a spec key colliding with `get` or `on`", () => {
+		const collidesWithGet = () =>
+			eventedRegistry(
+				{ get: ConfirmOrderCommand },
+				fakeEmitter(),
+			).withDependencies({});
+		const collidesWithOn = () =>
+			eventedRegistry(
+				{ on: ConfirmOrderCommand },
+				fakeEmitter(),
+			).withDependencies({});
+
+		expect(collidesWithGet).toThrow(PropertyNameCollisionException);
+		expect(collidesWithOn).toThrow(PropertyNameCollisionException);
+
+		try {
+			collidesWithOn();
+			expect.unreachable("should have thrown");
+		} catch (error) {
+			expect((error as PropertyNameCollisionException).property).toBe("on");
+			expect((error as PropertyNameCollisionException).source).toBe(
+				"evented-registry",
+			);
+		}
 	});
 });

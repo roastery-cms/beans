@@ -1,4 +1,4 @@
-import type { CommandResult } from "@/application/command/types";
+import type { CommandResult } from "./command-result.type";
 
 /**
  * Widest `Command` **class** type: something whose instances resolve

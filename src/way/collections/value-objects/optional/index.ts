@@ -8,7 +8,8 @@
  * it mirrors; every name below is a straight re-export, not a copy.
  *
  * Re-exports: `OptionalBooleanVO`, `OptionalDateTimeVO`, `OptionalEmailVO`,
- * `OptionalNumberVO`, `OptionalPasswordVO`, `OptionalSimpleUrlVO`,
+ * `OptionalNumberVO`, `OptionalPasswordVO`, `OptionalSchemaVO`,
+ * `OptionalSimpleUrlVO`,
  * `OptionalSlugVO`, `OptionalStringVO`, `OptionalStringArrayVO`,
  * `OptionalUrlVO`, `OptionalUuidArrayVO`, `OptionalUuidVO` — each just the
  * required VO's schema plus `undefined`, so the blueprint key becomes
@@ -29,6 +30,7 @@ export {
 	OptionalPositiveDoubleVO,
 	OptionalPositiveIntegerVO,
 	OptionalPositiveNumberVO,
+	OptionalSchemaVO,
 	OptionalSimpleUrlVO,
 	OptionalSlugVO,
 	OptionalStringArrayVO,

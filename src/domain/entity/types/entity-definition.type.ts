@@ -51,7 +51,7 @@ export type EntityDefinition<PropertiesShape extends PropertiesShapeBase> = {
 	 * adapter reads it back through `uniqueKeysOf(EntityClass)` or
 	 * `entity.isUnique(key)` and honours it there.
 	 *
-	 * A key backed by a **nested entity** is honoured too, by comparing the
+	 * A key backed by a **nested entity or record** is honoured too, by comparing the
 	 * whole serialized sub-object — what a database would do with a JSON column
 	 * under a unique index.
 	 */

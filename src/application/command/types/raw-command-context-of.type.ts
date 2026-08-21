@@ -1,6 +1,6 @@
 import type { CommandDomainKeys } from "./command-domain-keys.type";
 import type { CommandPropertiesShapeBase } from "./command-properties-shape-base.type";
-import type { CommandRawValueOf } from "./command-raw-value-of.type";
+import type { CommandInputValueOf } from "./command-input-value-of.type";
 import type { CommandRuledKeys } from "./command-ruled-keys.type";
 import type { CommandUndefinedableKeys } from "./command-undefinedable-keys.type";
 
@@ -22,10 +22,10 @@ export type RawCommandContextOf<Shape extends CommandPropertiesShapeBase> = {
 	[Key in Exclude<
 		CommandDomainKeys<Shape>,
 		CommandRuledKeys<Shape> | CommandUndefinedableKeys<Shape>
-	>]: CommandRawValueOf<Shape[Key]>;
+	>]: CommandInputValueOf<Shape[Key]>;
 } & {
 	[Key in Extract<
 		CommandDomainKeys<Shape>,
 		CommandRuledKeys<Shape> | CommandUndefinedableKeys<Shape>
-	>]?: CommandRawValueOf<Shape[Key]>;
+	>]?: CommandInputValueOf<Shape[Key]>;
 };

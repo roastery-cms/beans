@@ -5,13 +5,20 @@ import type {
 import type { DomainEvent } from "@/domain/domain-event";
 import type { AnyEventHandlerClass } from "./any-event-handler-class.type";
 import type { EventClassOf } from "./event-class-of.type";
+import type { EventedRegistryOf } from "./evented-registry-of.type";
 import type { RegistrableEventHandlerClass } from "./registrable-event-handler-class.type";
 
 /**
- * What `eventedRegistry(spec, emitter).withDependencies(dependencies)`
- * returns: everything `ICommandRegistry` itself offers through `.get()`
- * (decorated to auto-publish every raised event and run its reactions
- * before resolving), plus `.on()` to register those reactions, fluently.
+ * The **named** members of a finished evented registry: everything
+ * `ICommandRegistry` itself offers through `.get()` (decorated to
+ * auto-publish every raised event and run its reactions before resolving),
+ * plus `.on()` to register those reactions, fluently.
+ *
+ * @remarks
+ * Only half of what `withDependencies` returns — the per-key accessors are a
+ * mapped type an interface cannot declare, and are intersected in by
+ * {@link EventedRegistryOf}, which is also what `.on()` gives back so a
+ * chained `.on(...).on(...)` never loses them.
  *
  * @typeParam Spec - The registry's command spec.
  * @typeParam Dependencies - The dependency record supplied to `withDependencies`.
@@ -43,7 +50,8 @@ export interface IEventedRegistry<
 	 * @param eventClass - The event class to react to, e.g. `OrderConfirmed`.
 	 * @param handlerClass - An `IEventHandler<Event, Deps>`-implementing
 	 *   class — constructed fresh (`new HandlerClass()`) per matching event.
-	 * @returns This registry, for chaining further `.on()` calls.
+	 * @returns This registry — the same identity, accessors included — for
+	 *   chaining further `.on()` calls.
 	 * @throws `InvalidEntityDefinitionException` — when `eventClass` does not
 	 *   declare `defineName()` as a prototype method.
 	 */
@@ -55,5 +63,5 @@ export interface IEventedRegistry<
 			Event,
 			HandlerClass
 		>,
-	): IEventedRegistry<Spec, Dependencies>;
+	): EventedRegistryOf<Spec, Dependencies>;
 }

@@ -1,3 +1,7 @@
+import type {
+	CommandRegistrySpecBase,
+	WithSiblingCommands,
+} from "@/application/command/types";
 import type { DomainEvent } from "@/domain/domain-event";
 import type { EventHandlerClassOf } from "./types/event-handler-class-of.type";
 import type { IEventHandler } from "./types/ievent-handler.interface";
@@ -89,6 +93,15 @@ import type { IEventHandler } from "./types/ievent-handler.interface";
  *   "reads nothing" outcomes, but `RegistrableEventHandlerClass` has no
  *   such second branch. Omit the second type argument and `handle`'s
  *   second parameter when a reaction reads nothing from `deps`.
+ * @typeParam Siblings - Sibling commands this reaction reaches through
+ *   `deps.commands`, given as a map of registry key to command **class**
+ *   (`{ sendReceipt: typeof SendReceiptCommand }`). `eventedRegistry` already
+ *   injects that bag at runtime (see its `react`); naming the classes here is
+ *   what makes it visible to the type system, without spelling anything out
+ *   in `CommandRunner<...>` terms. Empty by default, which leaves `Deps`
+ *   exactly as given. Note the ordering: a reaction that needs *only* the
+ *   commands bag still passes `unknown` in the `Deps` slot first —
+ *   `unknown & { commands: … }` reduces to the bag alone.
  *
  * @param handle - The reaction itself: `(event, deps) => Promise<void>`,
  *   run once per matching event. Must resolve `Promise<void>` — the same
@@ -117,10 +130,14 @@ import type { IEventHandler } from "./types/ievent-handler.interface";
 export function defineEventHandler<
 	Event extends DomainEvent = DomainEvent,
 	Deps = unknown,
+	Siblings extends CommandRegistrySpecBase = Record<never, never>,
 >(
-	handle: (event: Event, deps: Deps) => Promise<void>,
+	handle: (
+		event: Event,
+		deps: WithSiblingCommands<Deps, Siblings>,
+	) => Promise<void>,
 	name?: string,
-): EventHandlerClassOf<Event, Deps>;
+): EventHandlerClassOf<Event, WithSiblingCommands<Deps, Siblings>>;
 /**
  * Overload for a `DomainEvent` **class reference** (`typeof BeanPlanted`,
  * the value `defineDomainEvent` or a hand-written subclass' declaration
@@ -135,6 +152,7 @@ export function defineEventHandler<
  * @typeParam EventClass - The event's class, not an instance of it.
  * @typeParam Deps - The dependencies `handle` needs. Defaults to
  *   `unknown` — see the first overload's own `@typeParam Deps` for why.
+ * @typeParam Siblings - See the first overload's own `@typeParam Siblings`.
  *
  * @param handle - The reaction itself.
  * @param name - Optional name to stamp onto the generated class.
@@ -154,10 +172,17 @@ export function defineEventHandler<
 		...args: never[]
 	) => DomainEvent,
 	Deps = unknown,
+	Siblings extends CommandRegistrySpecBase = Record<never, never>,
 >(
-	handle: (event: InstanceType<EventClass>, deps: Deps) => Promise<void>,
+	handle: (
+		event: InstanceType<EventClass>,
+		deps: WithSiblingCommands<Deps, Siblings>,
+	) => Promise<void>,
 	name?: string,
-): EventHandlerClassOf<InstanceType<EventClass>, Deps>;
+): EventHandlerClassOf<
+	InstanceType<EventClass>,
+	WithSiblingCommands<Deps, Siblings>
+>;
 export function defineEventHandler(
 	handle: (event: DomainEvent, deps: unknown) => Promise<void>,
 	name?: string,

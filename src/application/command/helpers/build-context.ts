@@ -2,6 +2,8 @@ import type { IValueObjectContext } from "@/domain/value-object/types";
 import { UnprocessableContentException } from "@roastery/terroir/exceptions/application";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import { applyRuleDefaults } from "@/shared/helpers/apply-rule-defaults";
+import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
+import { rawOf } from "@/shared/helpers/raw-of";
 import { rulesOf } from "@/shared/helpers/rules-of";
 import type { AnyValueObjectClass } from "../types/any-value-object-class.type";
 import type { CommandContextOf } from "../types/command-context-of.type";
@@ -15,8 +17,16 @@ type LooseRule = {
 };
 
 /**
- * Builds one blueprint property: constructs its value-object from the raw
- * input, or falls back to `.demo()` in demo mode.
+ * Builds one blueprint property: constructs its value-object (or nested
+ * record) from the raw input, or falls back to `.demo()` in demo mode.
+ *
+ * A record-valued key takes a different branch: it constructs from a single
+ * payload argument and its `demo()` takes none, where a value-object needs the
+ * `{ name, source }` identification context. It is also **not** wrapped in the
+ * re-tagging `try`/`catch` below — a record builds its own properties through
+ * the domain machinery and any failure inside it already carries that
+ * property's own name and source, which is more precise than what re-tagging
+ * at this level could say.
  *
  * A raw-value construction that fails validation crosses the boundary a
  * `Command` exists to guard: `ValueObject.validate()` throws the
@@ -45,7 +55,17 @@ function buildProperty(
 	value: unknown,
 	useDefault: boolean,
 ): AnyValueObject {
-	const propertyClass = properties[key] as AnyValueObjectClass;
+	const propertyClass = properties[key];
+
+	if (!isValueObjectClass(propertyClass))
+		return useDefault
+			? (propertyClass as unknown as { demo(): AnyValueObject }).demo()
+			: (new (
+					propertyClass as unknown as new (
+						payload: never,
+					) => AnyValueObject
+				)(value as never) as AnyValueObject);
+
 	const context: IValueObjectContext = { name: key, source };
 
 	if (useDefault)
@@ -56,7 +76,12 @@ function buildProperty(
 		).demo(context);
 
 	try {
-		return new propertyClass(value as never, context) as AnyValueObject;
+		return new (
+			propertyClass as unknown as new (
+				value: never,
+				context: IValueObjectContext,
+			) => AnyValueObject
+		)(value as never, context);
 	} catch (error) {
 		if (error instanceof InvalidPropertyException)
 			throw new UnprocessableContentException(
@@ -105,14 +130,14 @@ export function buildContext<Shape extends CommandPropertiesShapeBase>(
 			values[key],
 			useDefault && values[key] === undefined,
 		);
-		values[key] = built[key].value;
+		values[key] = rawOf(built[key]);
 	}
 
 	for (const key of pending) {
 		const derive = rules[key]?.derive;
 		values[key] = derive?.(values);
 		built[key] = buildProperty(properties, source, key, values[key], false);
-		values[key] = built[key].value;
+		values[key] = rawOf(built[key]);
 	}
 
 	return built as CommandContextOf<Shape>;

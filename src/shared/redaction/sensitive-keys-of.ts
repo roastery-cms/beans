@@ -42,7 +42,7 @@ export function sensitiveKeysOf(
 	const sensitive = new Map<string, ISensitiveKey>();
 
 	for (const [key, propertyClass] of Object.entries(properties)) {
-		// A nested entity has no `[Meta]` to read; its own properties are
+		// A nested entity or record has no `[Meta]` to read; its own properties are
 		// resolved when serialization recurses into it.
 		if (!isValueObjectClass(propertyClass)) continue;
 

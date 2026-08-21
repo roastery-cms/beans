@@ -54,6 +54,11 @@
  *   construction and execution to it wholesale. A `CommandResult` still
  *   carries its `events` either way, so nothing is lost by starting here —
  *   moving up later is a change of registry, not of use cases.
+ * - **Domain modeling without identity** — {@link recordOf}, the same
+ *   low-ceremony factory shape as `entityOf` for a composite value that
+ *   deserves verbs (`Money`, `Address`, `DateRange`) but is not a row: no
+ *   `id`, no `createdAt`, and mutable only through the verbs it declares. A
+ *   record is usable as a key of an entity, a command or another record.
  * - **Persistence ports** — {@link RepositoryOf} (a repository contract
  *   derived from an entity's own blueprint, type-only). The granular `ICan*`
  *   capabilities it is assembled from — the unit a use case asks for in its
@@ -62,6 +67,8 @@
  */
 
 export { blueprint, entityOf } from "@/domain/entity/helpers";
+
+export { recordOf } from "@/domain/record/helpers";
 
 export { defineDomainEvent } from "@/domain/domain-event";
 

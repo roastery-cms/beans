@@ -7,6 +7,13 @@
  * lifecycle points, and two **method decorators** for an arbitrary
  * business operation.
  *
+ * **None of the five applies to a `DomainRecord` subclass.** Every one of them
+ * ends in `raiseEvent`, which a record does not have — a record forwards a
+ * deep event drain but never raises. Nothing guards against it at runtime
+ * (same stance the pillar takes everywhere else); the call simply fails at the
+ * `raiseEvent` cast. `onUpdate` is the most tempting of the five, since a
+ * record *does* have `setMany`, and therefore the most important to name here.
+ *
  * Re-exports:
  * - {@link emit} — method decorator: raises an event once the decorated method has run to completion (never on a thrown exception).
  * - {@link onError} — method decorator: catches an exception the decorated method throws, raises an event built from it, then re-throws the original error.

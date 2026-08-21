@@ -17,6 +17,10 @@
  * - `"@roastery/beans/domain/domain-event"` — the optional abstract `DomainEvent`
  *   base for events raised through `Entity.raiseEvent`. Subpath:
  *   `/domain-event/types` (`IDomainEvent`, the contract it implements).
+ * - `"@roastery/beans/domain/record"` — the record pillar ({@link DomainRecord}
+ *   and `recordOf`): an `Entity` **without identity**, for the composite domain
+ *   values that deserve verbs. Subpaths: `/record/helpers` (`recordOf`) and
+ *   `/record/types` (`IRecord`, `RecordDefinition`, `RecordAccessorsOf`, …).
  * - `"@roastery/beans/domain/value-object"` — the abstract {@link ValueObject} base.
  *   Subpaths: `/value-object/helpers` (`metaOf`) and `/value-object/types`
  *   (`IValueObjectContext`, `IValueObjectMetadata`).
@@ -30,18 +34,21 @@
  * Symbol equality is by reference, so a local redeclaration would read the
  * wrong slot and silently return `undefined`.
  *
- * The root barrel stays narrow on purpose: the two base classes plus
- * `blueprint` and `DomainEvent`, the two things most subclasses need right
- * alongside them — everything else (types, the rest of `entity/helpers`,
- * collections) lives behind a subpath.
+ * The root barrel stays narrow on purpose: the base classes plus `blueprint`
+ * and `DomainEvent`, the things most subclasses need right alongside them —
+ * everything else (types, the rest of `entity/helpers`, collections) lives
+ * behind a subpath.
  *
  * Re-exports:
  * - {@link blueprint} — declares a blueprint carrying domain rules (`default` / `derive`).
  * - {@link DomainEvent} — optional abstract base for writing domain-event classes.
+ * - {@link DomainRecord} — abstract, blueprint-driven base for domain records:
+ *   an entity minus identity, mutable only through its own verbs.
  * - {@link Entity} — abstract, blueprint-driven base for domain entities.
  * - {@link ValueObject} — abstract, self-validating base for immutable domain values.
  */
 
 export { Entity, blueprint } from "./entity";
+export { DomainRecord } from "./record";
 export { ValueObject } from "./value-object";
 export { DomainEvent } from "./domain-event";

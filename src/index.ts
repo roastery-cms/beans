@@ -29,11 +29,19 @@
  * - {@link blueprint} — declares a blueprint carrying domain rules (`default` / `derive`).
  * - {@link Command} — abstract, blueprint-driven base for application-layer commands.
  * - {@link DomainEvent} — optional abstract base for writing domain-event classes.
+ * - {@link DomainRecord} — abstract, blueprint-driven base for domain records:
+ *   an entity minus identity, mutable only through its own verbs.
  * - {@link Entity} — abstract, blueprint-driven base for domain entities.
  * - {@link ValueObject} — abstract, self-validating base for immutable domain values.
  */
 
-export { blueprint, DomainEvent, Entity, ValueObject } from "./domain";
+export {
+	blueprint,
+	DomainEvent,
+	DomainRecord,
+	Entity,
+	ValueObject,
+} from "./domain";
 export { Command } from "./application";
 export {
 	configureRedaction,

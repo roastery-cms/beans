@@ -35,4 +35,6 @@ export type { RawContextOf } from "./raw-context-of.type";
 export type { IRawEntity } from "./raw-entity.interface";
 export type { RuledBlueprint } from "./ruled-blueprint.type";
 export type { RulesOf } from "./rules-of.type";
+export type { SetHandlerOf } from "./set-handler-of.type";
+export type { SetHandlersOf } from "./set-handlers-of.type";
 export type { SerializedEntity } from "./serialized-entity.type";

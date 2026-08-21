@@ -5,12 +5,14 @@ import { NullableDateTimeVO } from "@/domain/collections/value-objects/nullable"
 import { OptionalStringVO } from "@/domain/collections/value-objects/optional";
 import { DomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
+import { blueprint, entityOf } from "@/domain/entity/helpers";
 import type {
 	AccessorsOf,
 	EntityDefinition,
 	IEntity,
 	RawContextOf,
 	SerializedEntity,
+	SetHandlersOf,
 } from "@/domain/entity/types";
 import type { InputValueOf } from "@/domain/entity/types/input-value-of.type";
 import type { InputValuesOf } from "@/domain/entity/types/input-values-of.type";
@@ -26,7 +28,7 @@ import {
 	PropertyNameCollisionException,
 } from "@roastery/terroir/exceptions/domain";
 import { Storage } from "@roastery/terroir/symbols";
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 
 /** Event with no payload of its own — constructor inherited from `DomainEvent`, just `aggregateId`. */
 class BeanPlanted extends DomainEvent {
@@ -1612,6 +1614,220 @@ describe("Entity", () => {
 
 			expect(staff.get("key")).toBe("k-1");
 			expect(staff.toJSON().key).toBe("k-1");
+		});
+	});
+	describe("onSet", () => {
+		/** One recorded handler call: the key, the raw value, a snapshot of `raw`. */
+		type TrackedCall = {
+			readonly key: string;
+			readonly value: unknown;
+			readonly raw: Record<string, unknown>;
+		};
+
+		const trackedProperties = blueprint({
+			name: StringVO,
+			slug: SlugVO,
+			note: OptionalStringVO,
+		}).with({ slug: { derive: (raw) => raw.name } });
+
+		const calls: TrackedCall[] = [];
+
+		class Tracked extends entityOf(trackedProperties, "tracked") {
+			protected override onSet(): SetHandlersOf<typeof trackedProperties> {
+				return {
+					name: (value, raw) => {
+						calls.push({ key: "name", value, raw: { ...raw } });
+					},
+					slug: (value, raw) => {
+						calls.push({ key: "slug", value, raw: { ...raw } });
+					},
+				};
+			}
+
+			/** Widens the mutation primitives — these tests drive them from outside. */
+			public write(
+				values: Partial<InputValuesOf<typeof trackedProperties>>,
+			): boolean {
+				return this.setMany(values);
+			}
+
+			public rename(value: string): boolean {
+				return this.set("name", value);
+			}
+		}
+
+		beforeEach(() => {
+			calls.length = 0;
+		});
+
+		it("runs the handler on construction, with the raw payload value", () => {
+			new Tracked({ name: "Alan Reis" });
+
+			expect(calls.map(({ key, value }) => [key, value])).toEqual([
+				["name", "Alan Reis"],
+				["slug", "Alan Reis"],
+			]);
+		});
+
+		/**
+		 * The same view `derive` already sees: blueprint order, siblings built
+		 * earlier already normalised, siblings built later still `undefined`.
+		 */
+		it("hands the handler the same raw view a derive rule gets", () => {
+			new Tracked({ name: "Alan Reis", note: "hi" });
+
+			expect(calls[0]?.raw).toEqual({
+				name: "Alan Reis",
+				slug: undefined,
+				note: "hi",
+			});
+
+			// The derived key's own slot already carries the value about to be
+			// set — the handler runs after the derivation, before the build.
+			expect(calls[1]?.raw).toEqual({
+				name: "Alan Reis",
+				slug: "Alan Reis",
+				note: "hi",
+			});
+		});
+
+		/** The derived value, not the absent payload one. */
+		it("fires a derived key with the value the derivation produced", () => {
+			new Tracked({ name: "Alan Reis" });
+
+			expect(calls[1]).toMatchObject({ key: "slug", value: "Alan Reis" });
+		});
+
+		/** A key falling back to the value-object's own default has nothing to set. */
+		it("does not fire for a key with no raw value", () => {
+			new Tracked({ name: "Alan Reis" });
+
+			expect(calls.some(({ key }) => key === "note")).toBe(false);
+		});
+
+		/**
+		 * Nothing has a raw value in demo mode — except a derived key, whose
+		 * derivation still runs and still produces one. That is the same rule,
+		 * not an exception to it.
+		 */
+		it("fires in demo mode only for a key a derivation produced", () => {
+			Tracked.demo();
+
+			expect(calls.map(({ key }) => key)).toEqual(["slug"]);
+		});
+
+		it("fires on fromJSON, for every key the payload carries", () => {
+			const row = new Tracked({ name: "Alan Reis" }).toJSON();
+
+			calls.length = 0;
+
+			Tracked.fromJSON(row);
+
+			expect(calls.map(({ key }) => key)).toEqual(["name", "slug"]);
+		});
+
+		it("fires on set, before the value is assigned", () => {
+			const tracked = new Tracked({ name: "Alan Reis" });
+
+			calls.length = 0;
+
+			tracked.rename("Bean Roaster");
+
+			expect(calls).toHaveLength(1);
+			expect(calls[0]).toMatchObject({ key: "name", value: "Bean Roaster" });
+		});
+
+		/** Current state, overlaid by the batch being written. */
+		it("hands a mutation handler the current values under the batch", () => {
+			const tracked = new Tracked({ name: "Alan Reis", note: "hi" });
+
+			calls.length = 0;
+
+			tracked.write({ name: "Bean Roaster" });
+
+			expect(calls[0]?.raw).toEqual({
+				name: "Bean Roaster",
+				slug: "alan-reis",
+				note: "hi",
+			});
+		});
+
+		/** Rules only ever resolve at construction — `setMany` takes explicit values. */
+		it("does not fire a key the mutation did not name", () => {
+			const tracked = new Tracked({ name: "Alan Reis" });
+
+			calls.length = 0;
+
+			tracked.write({ name: "Bean Roaster" });
+
+			expect(calls.map(({ key }) => key)).toEqual(["name"]);
+		});
+
+		describe("a throwing handler", () => {
+			const guardedProperties = { name: StringVO, slug: SlugVO };
+
+			class Guarded extends entityOf(guardedProperties, "guarded") {
+				protected override onSet(): SetHandlersOf<typeof guardedProperties> {
+					return {
+						name: (value) => {
+							if (value === "forbidden")
+								throw new InvalidPropertyException("name", "guarded");
+						},
+					};
+				}
+
+				public write(
+					values: Partial<InputValuesOf<typeof guardedProperties>>,
+				): boolean {
+					return this.setMany(values);
+				}
+			}
+
+			it("rejects the construction", () => {
+				expect(() => new Guarded({ name: "forbidden", slug: "ok" })).toThrow(
+					InvalidPropertyException,
+				);
+			});
+
+			it("leaves the entity untouched, including the other keys", () => {
+				const guarded = new Guarded({ name: "alan", slug: "alan" });
+				const before = guarded.toJSON();
+
+				expect(() =>
+					guarded.write({ name: "forbidden", slug: "changed" }),
+				).toThrow(InvalidPropertyException);
+
+				expect(guarded.toJSON()).toEqual(before);
+				expect(guarded.updatedAt).toBeUndefined();
+			});
+		});
+
+		/**
+		 * The half of the class-field trap that *is* detectable. During
+		 * construction `this.onSet` still resolves to the base's empty method,
+		 * with no trace of the field to find — so the guard fires on the first
+		 * mutation instead of letting the rule stay silently dead.
+		 */
+		it("rejects an onSet declared as a class field, on the first mutation", () => {
+			class BadOnSet extends Entity<typeof beanProperties> {
+				protected override onSet = (): SetHandlersOf<
+					typeof beanProperties
+				> => ({});
+
+				protected defineEntity(): EntityDefinition<typeof beanProperties> {
+					return { properties: beanProperties, source: "bad-on-set" };
+				}
+
+				public rename(value: string): boolean {
+					return this.set("name", value);
+				}
+			}
+
+			const bad = new BadOnSet({ name: "alan", slug: "alan" });
+
+			expect(() => bad.rename("bean")).toThrow(
+				InvalidEntityDefinitionException,
+			);
 		});
 	});
 });

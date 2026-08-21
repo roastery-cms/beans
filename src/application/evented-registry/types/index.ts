@@ -10,16 +10,18 @@
  *
  * Re-exports:
  * - {@link EventedRegistryBuilder} — what `eventedRegistry(spec, emitter)` returns.
+ * - {@link EventedRegistryOf} — what `withDependencies(deps)` returns, accessors included.
  * - {@link EventedRegistryOptions} — `eventedRegistry`'s optional third argument.
  * - {@link EventHandlerClassOf} — the class `defineEventHandler` returns.
  * - {@link EventReactionErrorContext} — what `onError` receives alongside the error.
  * - {@link EventReactionErrorHandler} — `EventedRegistryOptions.onError`'s shape.
- * - {@link IEventedRegistry} — what `withDependencies(dependencies)` returns.
+ * - {@link IEventedRegistry} — the named-member half of {@link EventedRegistryOf}.
  * - {@link IEventEmitter} — the contract every raised event is published through.
  * - {@link IEventHandler} — the contract a reaction implements.
  */
 
 export type { EventedRegistryBuilder } from "./evented-registry-builder.type";
+export type { EventedRegistryOf } from "./evented-registry-of.type";
 export type { EventedRegistryOptions } from "./evented-registry-options.type";
 export type { EventHandlerClassOf } from "./event-handler-class-of.type";
 export type { EventReactionErrorContext } from "./event-reaction-error-context.type";

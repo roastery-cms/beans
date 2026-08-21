@@ -1,4 +1,5 @@
 import { commandRegistry } from "@/application/command-registry";
+import { installRunners } from "@/application/command-registry/command-registry";
 import type {
 	AnyCommandClass,
 	CommandRegistrySpecBase,
@@ -12,7 +13,7 @@ import { nameOf } from "./helpers/name-of";
 import type { AnyEventHandlerClass } from "./types/any-event-handler-class.type";
 import type { EventedRegistryBuilder } from "./types/evented-registry-builder.type";
 import type { EventedRegistryOptions } from "./types/evented-registry-options.type";
-import type { IEventedRegistry } from "./types/ievented-registry.interface";
+import type { EventedRegistryOf } from "./types/evented-registry-of.type";
 import type { IEventEmitter } from "./types/ievent-emitter.interface";
 
 /**
@@ -68,8 +69,11 @@ import type { IEventEmitter } from "./types/ievent-emitter.interface";
  *   .on(OrderConfirmed, SendReceiptOnOrderConfirmed);
  *
  * // resolves only after OrderConfirmed's reaction (and whatever it triggers) has run
- * const { result } = await registry.get("confirmOrder")({ total: 100 });
+ * const { result } = await registry.confirmOrder({ total: 100 });
  * ```
+ *
+ * @throws `PropertyNameCollisionException` — from `withDependencies`, when a
+ *   spec key collides with a member the registry already carries (`get`, `on`).
  *
  * @throws {@link LoopDetectedException} if a reaction chain reached through
  *   `deps.commands` or through a re-raised event calls back into a command
@@ -87,7 +91,7 @@ export function eventedRegistry<const Spec extends CommandRegistrySpecBase>(
 	return {
 		withDependencies<const Dependencies>(
 			dependencies: Dependencies,
-		): IEventedRegistry<Spec, Dependencies> {
+		): EventedRegistryOf<Spec, Dependencies> {
 			const baseRegistry = commandRegistry(spec).withDependencies(dependencies);
 			const reactions = new Map<string, AnyEventHandlerClass[]>();
 
@@ -188,26 +192,36 @@ export function eventedRegistry<const Spec extends CommandRegistrySpecBase>(
 
 			const commands = buildCommands(new Set());
 
-			const self: IEventedRegistry<Spec, Dependencies> = {
-				get(key) {
+			const self = {
+				get(key: string) {
 					if (!Object.hasOwn(spec, key))
 						throw new InvalidPropertyException(String(key), "evented-registry");
 
-					return commands[key as string] as never;
+					return commands[key];
 				},
 
-				on(eventClass, handlerClass) {
+				on(eventClass: never, handlerClass: never) {
 					const name = nameOf(eventClass);
 					const existing = reactions.get(name) ?? [];
 
-					existing.push(handlerClass as never);
+					existing.push(handlerClass);
 					reactions.set(name, existing);
 
 					return self;
 				},
 			};
 
-			return self;
+			// The accessors carry *this* pillar's decorated runners, never
+			// `baseRegistry`'s — reaching `registry.confirmOrder(...)` must
+			// auto-publish and react exactly as `.get("confirmOrder")(...)`
+			// does. Installed on `self` itself, before it is handed out, so
+			// the identity `.on()` returns carries them too.
+			installRunners(self, spec, commands, "evented-registry");
+
+			// Pragmatic cast, same reason `command-registry.ts`'s own is: the
+			// accessors are installed reflectively and `get`/`on`'s generic
+			// correlations are not something a plain object literal carries.
+			return self as unknown as EventedRegistryOf<Spec, Dependencies>;
 		},
 	};
 }

@@ -4,8 +4,8 @@ import type { PropertiesShapeBase } from "./properties-shape-base.type";
 
 /**
  * The built property map an `Entity` instance keeps under `[Context]`: the
- * identity value-objects plus one **instance** (value-object or nested entity)
- * per blueprint key.
+ * identity value-objects plus one **instance** (value-object, nested entity
+ * or nested record) per blueprint key.
  *
  * @typeParam PropertiesShape - The entity's blueprint shape.
  *

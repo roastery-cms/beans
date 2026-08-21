@@ -1,5 +1,5 @@
-import { Entity } from "@/domain/entity";
 import type { PropertiesShapeBase } from "@/domain/entity/types";
+import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
 import { sensitiveKeysOf } from "@/shared/redaction/sensitive-keys-of";
 
 /**
@@ -10,11 +10,15 @@ import { sensitiveKeysOf } from "@/shared/redaction/sensitive-keys-of";
  * The runtime counterpart of `RepositoryFilterKeysOf`, and it has to select
  * exactly the same set. Three details carry that agreement:
  *
- * - **Nested entities are excluded**, discriminated with
- *   `prototype instanceof Entity` — the same runtime check the `Entity` base
- *   itself uses to tell a nested aggregate from a value-object, rather than a
- *   structural guess. Importing the class here is safe: nothing in `src/`
- *   imports `testing/`, so there is no cycle to create.
+ * - **Only value-object-backed keys are selected**, tested *positively* with
+ *   `isValueObjectClass`. Nested entities and nested records are therefore
+ *   both excluded, and so would a fourth kind of property be. This used to be
+ *   a negative test (`!(prototype instanceof Entity)`), which silently let a
+ *   record-valued key through the moment the record pillar landed: the
+ *   generated double would have grown a `findByMoney`/`countByMoney` the type
+ *   never declares. The positive form also matches how the type side selects —
+ *   `RepositoryFilterValueOf` tests `extends AnyValueObjectClass` — so the two
+ *   halves now agree by construction rather than by parallel maintenance.
  * - **`Object.keys` skips symbols**, so a ruled blueprint's `[Rules]` slot
  *   never appears — the same property the type side gets from going through
  *   `DomainKeys` instead of bare `keyof`.
@@ -36,9 +40,11 @@ import { sensitiveKeysOf } from "@/shared/redaction/sensitive-keys-of";
  * 	email: EmailVO,
  * 	password: PasswordVO,
  * 	profile: Profile,
+ * 	price: Money,
  * });
  * // ["name", "email", "id", "createdAt", "updatedAt"]
- * // — never "profile" (nested entity), never "password" (sensitive)
+ * // — never "profile" (nested entity), never "price" (nested record),
+ * //   never "password" (sensitive)
  * ```
  *
  * @see `RepositoryFilterKeysOf` in `@roastery/beans/domain/repository/types` — the type this mirrors.
@@ -49,8 +55,7 @@ export function filterKeysOf(
 	const sensitive = sensitiveKeysOf(properties);
 
 	const domainKeys = Object.keys(properties).filter(
-		(key) =>
-			!(properties[key]?.prototype instanceof Entity) && !sensitive.has(key),
+		(key) => isValueObjectClass(properties[key]) && !sensitive.has(key),
 	);
 
 	return [...domainKeys, "id", "createdAt", "updatedAt"];
