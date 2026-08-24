@@ -84,37 +84,73 @@ if (!transaction && transactionalKeysOf(spec).length > 0)
 In `buildCommands` (`application/commands/commands.ts`):
 
 ```ts
-const outcome = boundary ? await boundary(work) : await work(); // ← the transaction wraps ONLY this
-for (const event of outcome.events) {                           // ← and none of this
-    await emitter?.emit(event);
-    await react(event, nextChain);
+const outcome = opensBoundary ? await transaction(work) : await work(); // ← wraps ONLY this
+
+if (pending) {                                    // a boundary is open above: hand the
+    for (const event of outcome.events)           // events up and publish nothing
+        pending.push({ chain: nextChain, event });
+    return outcome;
 }
+
+for (const entry of collected ?? [])              // ← and none of this
+    await publish(entry.event, entry.chain);
+for (const event of outcome.events)
+    await publish(event, nextChain);
 ```
 
 Order: **`COMMIT` → `emit` → reactions.** On failure `work` rejects, the loop never starts, nothing
-is published. Wrapping `registry.get(key)` from outside would give the wrong order
+is published — including whatever a nested command had already collected. Wrapping
+`registry.get(key)` from outside would give the wrong order
 (`transaction( execute + emit + reactions )` — an e-mail inside the transaction), which is why the
 option lives *inside* the registry rather than in a wrapper around it.
+
+**Publication is deferred to the runner that opened the boundary, and that is what makes the order
+true at every depth.** The first implementation had each runner publish right after *its own*
+boundary. For the outermost command that is the same thing; for a nested one it is not, because a
+nested command inherits the boundary and therefore has none of its own to wait for — so its events
+went out inside the still-open transaction, and any reaction to them ran there too. That is the
+whole reason `pending` exists: it is the answer to "is a boundary open above me?", carried as the
+place to put events rather than as a separate flag that could disagree with reality.
 
 Construction stays outside too: `new CommandClass(payload)` only validates input, and a
 `BadRequestException` is not worth a `BEGIN`/`ROLLBACK` round-trip.
 
 ## Nesting is threaded explicitly, never derived from `chain`
 
-`buildCommands(chain, inTransaction)` carries the answer:
+`buildCommands(chain, pending)` carries the answer, and `pending !== undefined` *is* the answer:
 
-- root bag → `false`
-- a command's own bag → `inTransaction || it just opened one`
-- a **reaction's** bag → `false`, because the event loop runs after the raising command committed
+- root bag → `undefined`
+- a command's own bag → a fresh `[]` if it just opened a boundary, otherwise whatever it was handed
+- a **reaction's** bag → `undefined`, because a reaction only ever runs once every boundary closed
 
 Deriving it from `chain` was the first idea and it is wrong. The chain mixes `command:` and `event:`
 nodes, and a command dispatched by a reaction has a `command:` ancestor *and* must open its own
 boundary. "Am I nested?" and "is a boundary already open?" only coincide while there are no
 reactions.
 
+The reaction bag's `undefined` deserves its own note, because it was the one line that used to be a
+claim rather than a consequence. It was written as a hard-coded `false` justified by "the event loop
+runs after the raising command committed" — true of the outermost command, false of a nested one
+while events were published eagerly. A reaction to a nested command's event ran with the transaction
+still open, and any command *it* dispatched opened a second `BEGIN` inside the first: precisely trap
+3 above, reintroduced at a different address. Deferring publication removes the possibility rather
+than documenting around it, so the reaction bag's `undefined` is now simply true.
+
 The two effects the design wanted both survive: a nested command inherits the boundary (so **the
 adapter never has to be reentrant** — that was trap 3 above), and a reaction-dispatched command
 opens its own (a reaction must not be able to roll back what already committed).
+
+## A failing bus does not fail the command
+
+`emitter.emit` is wrapped in the same isolation a throwing reaction gets — routed through
+`onError`, falling back to `defaultOnError`. By the time `emit` runs, the command has resolved and,
+in a transactional registry, committed. Rejecting its `CommandResult` would report failure for an
+operation that succeeded, and the natural response to that error is a retry that applies everything
+twice. Losing the event instead is the failure this package already names: commit and publish are
+two steps, and an outbox is the answer when that matters.
+
+Reactions still run for an event the bus refused. They are internal to the registry and never went
+through the emitter to begin with.
 
 ## `transaction` is on both overloads, and the evented one is declared first
 
@@ -203,8 +239,9 @@ const runner = inMemoryTransactionOf(users);
 commands(spec, { transaction: (work) => runner.run(work) }).withDependencies({ users });
 ```
 
-It rolls back **rows, never entities** — change tracking is still refused, above — and a nested `run`
-joins the open transaction rather than opening a second one.
+It rolls back **rows, never entities** — change tracking is still refused, above — and it runs **one
+transaction at a time**: a `run` opened while another is still live throws
+`TransactionFailedException` instead of joining it.
 
 `commands`' option is a **function**, not this object — `(work) => runner.run(work)` — so nothing in
 `application/` names a `domain/repository` type, and an adapter of any shape fits.

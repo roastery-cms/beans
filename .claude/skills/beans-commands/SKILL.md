@@ -54,10 +54,11 @@ await registry.get("createUser")(payload); // the same function object, reached 
 10. **A throwing reaction must never reject the `CommandResult`** of the command that raised the event.
 11. **The command-class vocabulary lives in `application/command/types/`**, re-exported by
     `commands/types` — moving it back would cycle the two pillars.
-12. **`buildCommands`'s `inTransaction` flag is threaded explicitly, never derived from `chain`.** The
+12. **`buildCommands`'s `pending` collector is threaded explicitly, never derived from `chain`.** The
     chain mixes `command:` and `event:` nodes, and a command dispatched by a reaction has a `command:`
     ancestor while still needing a boundary of its own — so "am I nested?" and "is a boundary already
-    open?" are different questions and only one of them is on the chain.
+    open?" are different questions and only one of them is on the chain. `pending !== undefined`
+    answers the second, and doubles as the place a nested command's events wait for the commit.
 
 ## The gate
 
@@ -162,9 +163,18 @@ commands(spec, { transaction: (work) => runner.run(work) }).withDependencies(dep
   Construction stays outside (an invalid payload must not open a boundary), and so do `emit` and the
   reactions — the order is `COMMIT` → `emit` → react.
 - **A boundary is resolved once per bag**, as
-  `!inTransaction && isTransactional(CommandClass) ? transaction : undefined`, and the nested bag is
-  built with `inTransaction || boundary !== undefined`. A reaction's bag restarts at `false`, because by
-  then the raising command already committed.
+  `transaction !== undefined && pending === undefined && isTransactional(CommandClass)`. The second
+  parameter of `buildCommands` is `pending: PendingPublication | undefined` — the collector events are
+  dammed into while a boundary is open above, and `pending !== undefined` *is* "am I inside one?".
+- **Publication is deferred to the runner that opened the boundary.** A nested runner pushes its events
+  into `pending` and returns; the opener publishes the collected ones first, then its own, once the
+  boundary has closed. Publishing eagerly per runner is wrong for a nested command, which inherits the
+  boundary and so has none of its own to wait for — its events would go out inside an open transaction,
+  and a reaction to them would open a second `BEGIN` inside the first. A reaction's bag is `undefined`,
+  and that is now a consequence rather than a claim.
+- **A throwing `emitter` is isolated like a throwing reaction** (`onError`, then `defaultOnError`). The
+  command already committed; rejecting it would invite a retry that applies everything twice. Reactions
+  still run for an event the bus refused.
 - **Marker without runner is not an error** — it runs unwrapped. `transactionalKeysOf(spec)` is the
   bootstrap net for anyone who wants otherwise, mirroring `uniqueKeysOf`.
 - **The marker is a plain `static`, not a symbol** — read structurally by `isTransactional`, so a

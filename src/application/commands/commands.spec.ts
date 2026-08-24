@@ -829,6 +829,96 @@ describe("commands — with an emitter", () => {
 		expect((captured!.error as Error).message).toBe("boom");
 	});
 
+	// A failing bus is not a failing command. By the time `emit` is reached the
+	// command has resolved — and, in a transactional registry, committed — so
+	// rejecting its `CommandResult` would report failure for something that
+	// succeeded, inviting a retry that applies the whole operation twice.
+	it("isolates a throwing emitter, and still resolves the command that raised", async () => {
+		let captured: { error: unknown; eventName: string } | undefined;
+		const registry = commands(
+			{ confirmOrder: ConfirmOrderCommand },
+			{
+				emitter: {
+					emit: () => {
+						throw new Error("bus is down");
+					},
+				},
+				onError: (error, { event }) => {
+					captured = { error, eventName: event.name };
+				},
+			},
+		).withDependencies({});
+
+		const { result } = await registry.get("confirmOrder")({ total: 5 });
+
+		expect(result).toBeInstanceOf(Order);
+		expect(captured!.eventName).toBe("order.confirmed");
+		expect((captured!.error as Error).message).toBe("bus is down");
+	});
+
+	it("falls back to the default when onError throws while handling a failed publish", async () => {
+		const scheduled: (() => void)[] = [];
+		const spy = spyOn(globalThis, "queueMicrotask").mockImplementation(
+			(task: () => void) => {
+				scheduled.push(task);
+			},
+		);
+
+		try {
+			const registry = commands(
+				{ confirmOrder: ConfirmOrderCommand },
+				{
+					emitter: {
+						emit: () => {
+							throw new Error("bus is down");
+						},
+					},
+					onError: () => {
+						throw new Error("the hook exploded too");
+					},
+				},
+			).withDependencies({});
+
+			const { result } = await registry.get("confirmOrder")({ total: 9 });
+
+			// Nowhere left to escalate to without giving up isolation, so the
+			// hook's own failure takes the unconditional fallback — and the
+			// command that already committed still resolves.
+			expect(result).toBeInstanceOf(Order);
+			expect(scheduled).toHaveLength(1);
+			expect(scheduled[0]).toThrow("the hook exploded too");
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it("still runs the reactions of an event the emitter failed to publish", async () => {
+		const reacted: string[] = [];
+		const registry = commands(
+			{ confirmOrder: ConfirmOrderCommand },
+			{
+				emitter: {
+					emit: () => {
+						throw new Error("bus is down");
+					},
+				},
+				onError: () => {},
+			},
+		)
+			.withDependencies({})
+			.on(
+				OrderConfirmed,
+				defineEventHandler<OrderConfirmed, unknown>(async (event) => {
+					reacted.push(event.name);
+				}),
+			);
+
+		await registry.get("confirmOrder")({ total: 5 });
+
+		// Reactions are internal to the registry and never depended on the bus.
+		expect(reacted).toEqual(["order.confirmed"]);
+	});
+
 	// The `onError = defaultOnError` default in the options destructuring: with
 	// no hook configured, a throwing reaction must still be isolated, and the
 	// command that raised the event must still resolve.
@@ -1226,6 +1316,88 @@ class PlaceOrderCommand extends Command<
 	}
 }
 
+/** A nested event, so the publication point of a *nested* command is observable. */
+class StockReserved extends DomainEvent {
+	protected defineName(): string {
+		return "stock.reserved";
+	}
+}
+
+/**
+ * Marked, reached as a sibling, and — unlike `ReserveStockCommand` — it
+ * actually raises. That difference is the whole point: with `events: []` the
+ * nested runner's publication loop never runs, which is exactly why publishing
+ * inside an open boundary went unnoticed.
+ */
+@transactional
+class AnnounceStockCommand extends Command<
+	typeof settleOrderProperties,
+	TraceDeps,
+	number
+> {
+	protected defineCommand(): CommandDefinition<typeof settleOrderProperties> {
+		return { properties: settleOrderProperties, source: "announce-stock" };
+	}
+
+	public async execute({ trace }: TraceDeps): Promise<CommandResult<number>> {
+		trace.push("announce-stock");
+
+		return {
+			result: this.get("total"),
+			events: [new StockReserved("stock-1")],
+		};
+	}
+}
+
+type PlaceAndAnnounceDeps = TraceDeps & {
+	commands: { announceStock: CommandRunner<typeof AnnounceStockCommand> };
+};
+
+/** Opens the boundary, then dispatches a nested command that raises. */
+@transactional
+class PlaceAndAnnounceCommand extends Command<
+	typeof settleOrderProperties,
+	PlaceAndAnnounceDeps,
+	number
+> {
+	protected defineCommand(): CommandDefinition<typeof settleOrderProperties> {
+		return { properties: settleOrderProperties, source: "place-and-announce" };
+	}
+
+	public async execute({
+		trace,
+		commands: siblings,
+	}: PlaceAndAnnounceDeps): Promise<CommandResult<number>> {
+		trace.push("place-and-announce:start");
+		await siblings.announceStock({ total: this.get("total") });
+		trace.push("place-and-announce:end");
+
+		return { result: this.get("total"), events: [] };
+	}
+}
+
+/** Opens the boundary, dispatches a raising nested command, then rejects. */
+@transactional
+class FailAfterAnnounceCommand extends Command<
+	typeof settleOrderProperties,
+	PlaceAndAnnounceDeps,
+	never
+> {
+	protected defineCommand(): CommandDefinition<typeof settleOrderProperties> {
+		return { properties: settleOrderProperties, source: "fail-after-announce" };
+	}
+
+	public async execute({
+		trace,
+		commands: siblings,
+	}: PlaceAndAnnounceDeps): Promise<CommandResult<never>> {
+		trace.push("fail-after-announce");
+		await siblings.announceStock({ total: this.get("total") });
+
+		throw new Error("write failed");
+	}
+}
+
 /** Rejects after the boundary opened — the rollback fixture. */
 @transactional
 class FailingSettleCommand extends Command<
@@ -1316,6 +1488,109 @@ describe("commands — with a transaction", () => {
 			"reserve-stock",
 			"commit",
 		]);
+	});
+
+	it("publishes a nested command's events after the boundary closed, not inside it", async () => {
+		const trace: string[] = [];
+		const emitter: IEventEmitter = {
+			emit: (event) => {
+				trace.push(`emit:${event.name}`);
+			},
+		};
+		const registry = commands(
+			{
+				announceStock: AnnounceStockCommand,
+				placeAndAnnounce: PlaceAndAnnounceCommand,
+			},
+			{ emitter, transaction: tracingBoundary(trace) },
+		)
+			.withDependencies({ trace })
+			.on(
+				StockReserved,
+				defineEventHandler<StockReserved, TraceDeps>(async (_event, deps) => {
+					deps.trace.push("react");
+				}),
+			);
+
+		await registry.placeAndAnnounce({ total: 4 });
+
+		// The nested command resolved long before `commit`, and its event still
+		// waits for it: a boundary is open above, so publication is not its call
+		// to make.
+		expect(trace).toEqual([
+			"begin",
+			"place-and-announce:start",
+			"announce-stock",
+			"place-and-announce:end",
+			"commit",
+			"emit:stock.reserved",
+			"react",
+		]);
+	});
+
+	it("opens no second boundary for a command a nested event's reaction dispatches", async () => {
+		const trace: string[] = [];
+		const registry = commands(
+			{
+				announceStock: AnnounceStockCommand,
+				placeAndAnnounce: PlaceAndAnnounceCommand,
+				reserveStock: ReserveStockCommand,
+			},
+			{ emitter: fakeEmitter(), transaction: tracingBoundary(trace) },
+		)
+			.withDependencies({ trace })
+			.on(
+				StockReserved,
+				defineEventHandler<StockReserved, SettleOnOrderConfirmedDeps>(
+					async (_event, deps) => {
+						deps.trace.push("react:start");
+						await deps.commands.reserveStock({ total: 1 });
+						deps.trace.push("react:end");
+					},
+				),
+			);
+
+		await registry.placeAndAnnounce({ total: 4 });
+
+		// The outer pair closes before the reaction starts, so the boundary the
+		// reaction's command opens is a fresh one — never a second `begin` nested
+		// inside the first, which no adapter has to be reentrant to survive.
+		expect(trace).toEqual([
+			"begin",
+			"place-and-announce:start",
+			"announce-stock",
+			"place-and-announce:end",
+			"commit",
+			"react:start",
+			"begin",
+			"reserve-stock",
+			"commit",
+			"react:end",
+		]);
+	});
+
+	it("publishes nothing a nested command raised when the boundary rolls back", async () => {
+		const trace: string[] = [];
+		const emitter = fakeEmitter();
+		const registry = commands(
+			{
+				announceStock: AnnounceStockCommand,
+				failAfterAnnounce: FailAfterAnnounceCommand,
+			},
+			{ emitter, transaction: tracingBoundary(trace) },
+		).withDependencies({ trace });
+
+		await expect(registry.failAfterAnnounce({ total: 2 })).rejects.toThrow(
+			"write failed",
+		);
+
+		expect(trace).toEqual([
+			"begin",
+			"fail-after-announce",
+			"announce-stock",
+			"rollback",
+		]);
+		expect(emitter.emitted).toHaveLength(0);
 	});
 
 	it("runs a marked command normally when the registry was given no runner", async () => {

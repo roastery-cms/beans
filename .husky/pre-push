@@ -1,0 +1,2 @@
+mise exec -- bun test:coverage
+mise exec -- bun setup

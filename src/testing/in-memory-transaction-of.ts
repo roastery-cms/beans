@@ -1,5 +1,8 @@
 import type { ITransactionRunner } from "@/domain/repository/types";
-import { DependencyNotWiredException } from "@roastery/terroir/exceptions/infra";
+import {
+	DependencyNotWiredException,
+	TransactionFailedException,
+} from "@roastery/terroir/exceptions/infra";
 import { REPOSITORY_SOURCE } from "./helpers/repository-source";
 import { rowStores } from "./helpers/row-stores";
 
@@ -28,6 +31,8 @@ type Row = Record<string, unknown>;
  * @throws {DependencyNotWiredException} When called with no repository at all,
  *   or with an object `inMemoryRepositoryOf` did not build — both are runners
  *   that would silently roll nothing back.
+ * @throws {TransactionFailedException} From `run`, when a transaction is
+ *   already open on this runner. See the rule below.
  *
  * @example
  * ```ts
@@ -53,16 +58,21 @@ type Row = Record<string, unknown>;
  *   entity you mutated inside a `handle` keeps its new values after a rollback,
  *   because only `repository.update(entity)` ever wrote anything. That is the
  *   bug the double exists to catch, and a rollback must not start hiding it.
- * - **A nested `run` joins the open transaction** rather than opening a second
- *   one, so only the outermost call snapshots and restores. `commands` already
- *   opens a boundary only at the outermost marked command; this makes a
- *   hand-written nested `run` behave the same way, and is why the runner never
- *   has to be reentrant.
+ * - **One transaction at a time, and an overlapping `run` throws.** This models
+ *   a single connection, and a single connection cannot hold two transactions
+ *   — Postgres answers `there is already a transaction in progress`. The
+ *   alternative is worse than a refusal: the snapshots are taken over the same
+ *   stores, so two overlapping calls share them, and a rollback in either
+ *   restores rows the other already committed. Nothing legitimate hits this —
+ *   `commands` opens a boundary only at the outermost marked command and never
+ *   nests a `run`, and since publication is deferred until every boundary has
+ *   closed, not even a reaction can start one while another is alive. Await
+ *   two transactions in sequence.
  * - **Reads inside the transaction see its own writes** (read-your-writes,
  *   like a real database). Nothing here models isolation between concurrent
- *   connections — a second "session" would see uncommitted rows. That is the
- *   third documented infidelity of this pillar, next to UTF-16 string ordering
- *   and base64-ordered binary keys.
+ *   connections, which is the same statement as the rule above seen from the
+ *   read side. That is the fourth documented infidelity of this pillar, next
+ *   to UTF-16 string ordering and base64-ordered binary keys.
  * - **The rejection propagates untouched**, never wrapped: it is the failure
  *   the caller has to see, and it is what stops `commands` before the
  *   publication loop, so a rolled-back operation emits nothing.
@@ -98,24 +108,21 @@ export function inMemoryTransactionOf(
 		return rows;
 	});
 
-	let depth = 0;
+	let active = false;
 
 	return {
 		async run<T>(work: () => Promise<T>): Promise<T> {
-			// Already inside one: join it. Snapshotting again would make the
-			// inner call restore to a state the outer transaction produced,
-			// turning one business operation into two — the trap that keeps
-			// `commands` from opening a boundary below the outermost marked
-			// command.
-			if (depth > 0) {
-				depth += 1;
-
-				try {
-					return await work();
-				} finally {
-					depth -= 1;
-				}
-			}
+			// One transaction at a time, like the single connection this models.
+			// Two overlapping calls cannot both be right: the snapshots are taken
+			// over the same stores, so whichever rolls back restores rows the
+			// other already committed. Detecting the overlap and refusing is what
+			// a real connection does (`there is already a transaction in
+			// progress`); silently joining is how a passing test starts lying.
+			if (active)
+				throw new TransactionFailedException(
+					REPOSITORY_SOURCE,
+					"inMemoryTransactionOf runs one transaction at a time, like the single connection it models. Two overlapping run() calls share one set of snapshots, so a rollback in either would undo what the other committed. Await them in sequence.",
+				);
 
 			// Paired with its store, so restoring needs no index arithmetic.
 			// `structuredClone` copies the whole `Map` — keys, rows and every
@@ -125,7 +132,7 @@ export function inMemoryTransactionOf(
 				(rows) => [rows, structuredClone(rows)] as const,
 			);
 
-			depth += 1;
+			active = true;
 
 			try {
 				return await work();
@@ -138,7 +145,7 @@ export function inMemoryTransactionOf(
 
 				throw error;
 			} finally {
-				depth -= 1;
+				active = false;
 			}
 		},
 	};

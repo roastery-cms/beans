@@ -56,9 +56,11 @@ commands(spec, { transaction: (work) => runner.run(work) }).withDependencies({ u
     publication loop, which is how "a rolled-back operation publishes nothing" gets tested.
 11. **The runner reaches `rows` through `helpers/row-stores.ts`, a module-level `WeakMap`** — never
     through a member on the repository object, which must keep exactly the methods its spec named.
-12. **A nested `run` joins the open transaction** (depth counter); only the outermost call snapshots
-    and restores. The snapshot is a `structuredClone`, so an in-place mutation through a handler's
-    `context.rows` is undone too.
+12. **One transaction at a time**: a `run` opened while another is live throws
+    `TransactionFailedException`. A depth counter cannot tell a nested call from a concurrent one, and
+    joining a concurrent one is how a rollback ends up destroying rows another transaction committed.
+    The snapshot is a `structuredClone`, so an in-place mutation through a handler's `context.rows` is
+    undone too.
 13. **Wiring fails loudly**: no repository, or an object `inMemoryRepositoryOf` did not build,
     throws `DependencyNotWiredException`. Both doubles share `helpers/repository-source.ts` for the
     `source` slot.

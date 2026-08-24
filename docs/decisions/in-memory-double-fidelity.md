@@ -126,16 +126,36 @@ rollback that left that standing would be a silent hole.
 failure the caller has to see, and it is what stops `commands` before the publication loop — which
 is how "a rolled-back operation publishes nothing" gets tested rather than asserted.
 
-**A nested `run` joins the open transaction** (depth counter), so only the outermost call snapshots
-and restores. `commands` already opens a boundary only at the outermost marked command; this makes a
-hand-written nested `run` behave the same way, and is why the runner never has to be reentrant.
+**One transaction at a time, and an overlapping `run` throws**
+(`TransactionFailedException`, the datastore as its `source`). This models a single connection, and
+a single connection cannot hold two transactions — Postgres answers `there is already a transaction
+in progress`.
+
+The first version used a depth counter and *joined* whatever was open. That is right for a nested
+call and catastrophic for a concurrent one, and a counter cannot tell them apart: the second of two
+overlapping `run`s saw `depth > 0`, skipped its snapshot, and joined — so the first one's rollback
+destroyed rows the second had already committed. Silent, and in the direction that makes a test pass
+while asserting a lie. It is the same trap `commands` avoids on purpose one layer up, where the
+cycle guard threads an immutable `chain` downward precisely because *"a shared `Set` cannot tell two
+unrelated concurrent calls apart from a real cycle"*.
+
+**`AsyncLocalStorage` was considered and does not solve it.** It would fix the *detection* — nested
+and concurrent become distinguishable — but not the corruption, because the snapshots are taken over
+the same `Map`. Two live transactions still share one store, so a rollback in either still restores
+over the other's committed rows. Making concurrency actually work needs a write set per transaction
+and a merge at commit: MVCC, in a test double. Refusing is both smaller and more faithful.
+
+The cost is the hand-written nested `run`, which no longer joins. Nothing exercises it: `commands`
+opens a boundary only at the outermost marked command and never nests a `run`, and since publication
+is deferred until every boundary has closed, not even a reaction can open one while another is
+alive.
 
 **Two things it deliberately does not do.** It does not roll back *entities* — there is no change
 tracking here either, so an aggregate mutated inside a `handle` keeps its new values, the same way a
 missing `update()` leaves the store untouched; undoing it would hide precisely the bug the double
 exists to catch. And it does not model isolation between concurrent connections: reads inside the
-transaction see its own writes, and nothing else is running. That is the pillar's third documented
-infidelity, next to UTF-16 string ordering and base64-ordered binary keys.
+transaction see its own writes, and nothing else is allowed to be running. That is the pillar's
+fourth documented infidelity, next to UTF-16 string ordering and base64-ordered binary keys.
 
 **Scope is explicit and wiring fails loudly.** A double left out of the argument list is not rolled
 back. An empty list, or an object `inMemoryRepositoryOf` did not build, throws

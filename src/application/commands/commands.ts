@@ -20,6 +20,24 @@ import type { EventedCommandsOptions } from "./types/evented-commands-options.ty
 import type { EventedCommandsOf } from "./types/evented-commands-of.type";
 
 /**
+ * Events dammed up while a transaction boundary is open above the command
+ * that raised them, each paired with the call chain it was raised on.
+ *
+ * The chain travels with the event because `react` needs the position the
+ * event was raised at, not the position it is finally published from — the
+ * cycle guard would otherwise see a chain that no longer matches where the
+ * reaction actually sits.
+ *
+ * Internal to `commands`: a `pending` of `undefined` is what says "no
+ * boundary is open above me", so the parameter carries the flag and the
+ * payload as one value instead of two that could fall out of sync.
+ */
+type PendingPublication = {
+	readonly chain: ReadonlySet<string>;
+	readonly event: IDomainEvent;
+}[];
+
+/**
  * Declares a registry gating access to a set of `Command` subclasses by
  * their declared dependencies — entirely at compile time — and, given an
  * `emitter`, publishing every event those commands raise and running the
@@ -188,7 +206,7 @@ export function commands<const Spec extends CommandsSpecBase>(
 			 */
 			function buildCommands(
 				chain: ReadonlySet<string>,
-				inTransaction: boolean,
+				pending: PendingPublication | undefined,
 			): Record<string, CommandRunner<AnyCommandClass>> {
 				const runners: Record<string, CommandRunner<AnyCommandClass>> = {};
 
@@ -201,7 +219,7 @@ export function commands<const Spec extends CommandsSpecBase>(
 
 					// Resolved once per bag rather than per call: the marker is a
 					// static on a class that cannot change between dispatches, and
-					// `inTransaction` is fixed for the whole bag.
+					// `pending` is fixed for the whole bag.
 					//
 					// A boundary is opened only at the **outermost** marked command.
 					// One already open is inherited by everything below it, so the
@@ -210,10 +228,15 @@ export function commands<const Spec extends CommandsSpecBase>(
 					// `Command.execute()` itself, where every nested dispatch would
 					// have opened a second one and an inner rollback would never have
 					// reached the outer.
-					const boundary =
-						!inTransaction && isTransactional(CommandClass)
-							? transaction
-							: undefined;
+					//
+					// `transaction !== undefined` is part of the test on purpose: a
+					// marked command in a registry with no runner must run exactly as
+					// it would unmarked, which means it must not dam up its children's
+					// events either.
+					const opensBoundary =
+						transaction !== undefined &&
+						pending === undefined &&
+						isTransactional(CommandClass);
 
 					runners[key] = async (payload) => {
 						if (chain.has(node)) throw cycleError([...chain, node]);
@@ -225,32 +248,82 @@ export function commands<const Spec extends CommandsSpecBase>(
 						// BEGIN/ROLLBACK round-trip.
 						const command = new CommandClass(payload);
 
+						// The bag handed downward carries the collector this operation
+						// publishes through. Opening a boundary starts a fresh one;
+						// anything below an open boundary keeps filling the one above;
+						// with no boundary in sight it stays `undefined`, and every
+						// runner publishes as soon as it resolves — unchanged.
+						const collected: PendingPublication | undefined = opensBoundary
+							? []
+							: pending;
+
 						const work = (): Promise<CommandResult<unknown>> =>
 							command.execute({
 								...dependencies,
-								commands: buildCommands(
-									nextChain,
-									inTransaction || boundary !== undefined,
-								),
+								commands: buildCommands(nextChain, collected),
 							} as never);
 
-						const outcome = boundary ? await boundary(work) : await work();
+						const outcome = opensBoundary
+							? await transaction(work)
+							: await work();
 
-						// Deliberately after the boundary closed: publishing and
-						// reactions must never run inside the transaction, so a
-						// failing e-mail cannot roll back a committed operation and no
-						// e-mail is sent for one that rolled back. The order is
-						// COMMIT → emit → react.
-						for (const event of outcome.events) {
-							await emitter?.emit(event);
-							await react(event, nextChain);
+						// A boundary is open above: hand the events up and publish
+						// nothing. Publishing here would put them *inside* someone
+						// else's transaction, which is the one thing the boundary
+						// exists to prevent.
+						if (pending) {
+							for (const event of outcome.events)
+								pending.push({ chain: nextChain, event });
+
+							return outcome;
 						}
+
+						// Nothing open above — this is the point where the order
+						// COMMIT → emit → react is actually true, at every depth. The
+						// collected events go first because they happened first.
+						for (const entry of collected ?? [])
+							await publish(entry.event, entry.chain);
+
+						for (const event of outcome.events) await publish(event, nextChain);
 
 						return outcome;
 					};
 				}
 
 				return runners;
+			}
+
+			/**
+			 * Publishes one event and runs its reactions, in that order.
+			 *
+			 * Only ever called with every boundary already closed, which is what
+			 * makes `COMMIT` → `emit` → react hold for a nested command as much as
+			 * for the one that opened the transaction.
+			 */
+			async function publish(
+				event: IDomainEvent,
+				chain: ReadonlySet<string>,
+			): Promise<void> {
+				try {
+					await emitter?.emit(event);
+				} catch (error) {
+					// The command already committed. Rejecting its `CommandResult`
+					// would report failure for an operation that succeeded, and the
+					// natural response to that error is to retry — applying the whole
+					// thing twice. A bus that is down loses the event instead, which
+					// is the limit an outbox exists to close and which this package
+					// already documents. Same isolation a throwing reaction gets,
+					// for the same reason.
+					try {
+						await onError(error, { event });
+					} catch (hookError) {
+						defaultOnError(hookError);
+					}
+				}
+
+				// Reactions run even when the external bus failed: they are internal
+				// to the registry and never depended on it.
+				await react(event, chain);
 			}
 
 			async function react(
@@ -287,13 +360,16 @@ export function commands<const Spec extends CommandsSpecBase>(
 				// declared `Deps` is checked structurally at `.on()` time
 				// (`RegistrableEventHandlerClass`), so nothing here needs to prove it
 				// again at runtime.
-				// `false`, not the caller's flag: a reaction runs in the event
-				// loop *after* the raising command's boundary already closed, so a
-				// command it dispatches opens its own — and rightly so, since a
-				// reaction must not be able to roll back what already committed.
+				// `undefined`, never the caller's collector: a reaction only ever
+				// runs once every boundary has closed, so a command it dispatches
+				// opens its own — and rightly so, since a reaction must not be able
+				// to roll back what already committed. Publication being deferred to
+				// the outermost runner is what makes that unconditionally true; it
+				// used to be asserted by a hard-coded `false` that a nested command's
+				// events could contradict.
 				const handlerDeps = {
 					...(dependencies as object),
-					commands: buildCommands(nextChain, false),
+					commands: buildCommands(nextChain, undefined),
 				} as never;
 
 				for (const HandlerClass of handlerClasses) {
@@ -319,7 +395,7 @@ export function commands<const Spec extends CommandsSpecBase>(
 				}
 			}
 
-			const runners = buildCommands(new Set(), false);
+			const runners = buildCommands(new Set(), undefined);
 
 			const self = {
 				get(key: string) {

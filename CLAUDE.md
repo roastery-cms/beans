@@ -234,8 +234,12 @@ class CreateUser extends defineUseCase<typeof props, Deps, User>(props, "create-
   construction, publication or reactions (`COMMIT` → `emit` → react). A marked command in a registry
   with no runner **runs normally**, by design; `transactionalKeysOf(spec)` is the bootstrap net, the
   way `uniqueKeysOf` is for `unique`. A nested command inherits the open boundary; one dispatched by a
-  reaction opens its own. In a test, `inMemoryTransactionOf(...repositories)` (`@/testing`) is the
-  runner that actually rolls back — rows only, never entities.
+  reaction opens its own. **A nested command's events are held until the boundary above it closes** —
+  publishing when it resolved would put them inside a transaction still open, and a reaction to them
+  would open a second `BEGIN` inside the first. A throwing `emitter` is isolated through `onError`, like
+  a throwing reaction: the command already committed. In a test,
+  `inMemoryTransactionOf(...repositories)` (`@/testing`) is the runner that actually rolls back — rows
+  only, never entities, and **one transaction at a time** (an overlapping `run` throws).
 
 ### Multiplicity wrappers
 

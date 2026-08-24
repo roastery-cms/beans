@@ -8,7 +8,10 @@ import { defineDomainEvent } from "@/domain/domain-event";
 import { blueprint, entityOf } from "@/domain/entity/helpers";
 import type { RepositoryOf } from "@/domain/repository/types";
 import { inMemoryRepositoryOf, inMemoryTransactionOf } from "@/testing";
-import { DependencyNotWiredException } from "@roastery/terroir/exceptions/infra";
+import {
+	DependencyNotWiredException,
+	TransactionFailedException,
+} from "@roastery/terroir/exceptions/infra";
 import { describe, expect, it } from "bun:test";
 
 const profileProperties = { bio: StringVO };
@@ -264,53 +267,111 @@ describe("inMemoryTransactionOf — rollback", () => {
 	});
 });
 
-describe("inMemoryTransactionOf — nesting", () => {
-	it("joins the open transaction, so an inner failure rolls the outer writes back too", async () => {
+// ---------------------------------------------------------------------------
+// One at a time
+//
+// The runner models a single connection, and a single connection cannot hold
+// two transactions. The alternative to refusing is not "it works": the
+// snapshots are taken over the same stores, so two live transactions share
+// them and whichever rolls back destroys what the other committed.
+// ---------------------------------------------------------------------------
+
+describe("inMemoryTransactionOf — one transaction at a time", () => {
+	it("refuses a run opened while another is still live", async () => {
+		const users = inMemoryRepositoryOf(User);
+		const runner = inMemoryTransactionOf(users);
+
+		await expect(
+			runner.run(async () => {
+				await runner.run(async () => {
+					await users.create(newUser("bea", "bea@roastery.dev"));
+				});
+			}),
+		).rejects.toThrow(TransactionFailedException);
+	});
+
+	it("carries the datastore as the source of that refusal", async () => {
+		const users = inMemoryRepositoryOf(User);
+		const runner = inMemoryTransactionOf(users);
+
+		try {
+			await runner.run(async () => {
+				await runner.run(async () => {});
+			});
+			expect.unreachable("should have thrown");
+		} catch (error) {
+			expect((error as TransactionFailedException).source).toBe(
+				"in-memory-repository",
+			);
+		}
+	});
+
+	it("keeps two overlapping transactions from destroying each other's rows", async () => {
+		const users = inMemoryRepositoryOf(User);
+		const runner = inMemoryTransactionOf(users);
+
+		// `first` is still open when `second` starts. Joining silently is what
+		// used to happen, and `first`'s rollback then took `second`'s committed
+		// row with it — a test that passed while asserting a lie. Settled
+		// together because `second` rejects immediately, long before `first`.
+		const [first, second] = await Promise.allSettled([
+			runner.run(async () => {
+				await users.create(newUser("alan", "alan@roastery.dev"));
+				await Bun.sleep(5);
+				throw new Error("first failed");
+			}),
+			runner.run(async () => {
+				await users.create(newUser("bea", "bea@roastery.dev"));
+			}),
+		]);
+
+		expect(first.status).toBe("rejected");
+		expect((first as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+		expect(((first as PromiseRejectedResult).reason as Error).message).toBe(
+			"first failed",
+		);
+
+		expect(second.status).toBe("rejected");
+		expect((second as PromiseRejectedResult).reason).toBeInstanceOf(
+			TransactionFailedException,
+		);
+
+		// `first` rolled its own row back and there was never a second one to lose.
+		expect(await users.count()).toBe(0);
+	});
+
+	it("runs the same two transactions fine in sequence", async () => {
 		const users = inMemoryRepositoryOf(User);
 		const runner = inMemoryTransactionOf(users);
 
 		await expect(
 			runner.run(async () => {
 				await users.create(newUser("alan", "alan@roastery.dev"));
-
-				await runner.run(async () => {
-					await users.create(newUser("bea", "bea@roastery.dev"));
-					throw new Error("boom");
-				});
+				throw new Error("first failed");
 			}),
-		).rejects.toThrow("boom");
+		).rejects.toThrow("first failed");
 
-		expect(await users.count()).toBe(0);
+		await runner.run(async () => {
+			await users.create(newUser("bea", "bea@roastery.dev"));
+		});
+
+		// The rollback undid only its own transaction's row.
+		expect(await users.count()).toBe(1);
 	});
 
-	it("does not commit on the inner call — only the outermost one decides", async () => {
-		const users = inMemoryRepositoryOf(User);
-		const runner = inMemoryTransactionOf(users);
-
-		await expect(
-			runner.run(async () => {
-				await runner.run(async () => {
-					await users.create(newUser("bea", "bea@roastery.dev"));
-				});
-
-				throw new Error("boom");
-			}),
-		).rejects.toThrow("boom");
-
-		expect(await users.count()).toBe(0);
-	});
-
-	it("keeps working after a nested run resolved", async () => {
+	it("reopens normally once the previous transaction resolved", async () => {
 		const users = inMemoryRepositoryOf(User);
 		const runner = inMemoryTransactionOf(users);
 
 		await runner.run(async () => {
-			await runner.run(async () => {
-				await users.create(newUser("bea", "bea@roastery.dev"));
-			});
+			await users.create(newUser("bea", "bea@roastery.dev"));
 		});
 
-		expect(await users.count()).toBe(1);
+		await runner.run(async () => {
+			await users.create(newUser("alan", "alan@roastery.dev"));
+		});
+
+		expect(await users.count()).toBe(2);
 	});
 });
 

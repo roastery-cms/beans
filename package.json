@@ -75,9 +75,12 @@
 		"example": "bun run examples/user-flow.ts",
 		"setup": "bun run build && bun link",
 		"prepare": "husky || true",
+		"prepublishOnly": "bun run build && bun run test:unit",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"knip": "knip"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.5.0",
 		"@commitlint/cli": "^20.4.3",
 		"@commitlint/config-conventional": "^20.4.3",
 		"husky": "^9.1.7",
