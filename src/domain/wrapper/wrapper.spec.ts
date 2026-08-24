@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	BooleanVO,
 	IntegerVO,
+	PasswordVO,
 	StringVO,
 } from "@/domain/collections/value-objects";
 import { defineDomainEvent } from "@/domain/domain-event";
@@ -325,6 +326,67 @@ describe("multiplicity wrappers", () => {
 			assertEqual<Equal<typeof post.tags, readonly Tag[]>>();
 			assertEqual<Equal<typeof post.author, Tag | undefined>>();
 			assertEqual<Equal<typeof post.editor, Tag | null>>();
+		});
+	});
+	describe("redaction", () => {
+		const accountProperties = {
+			names: arrayOf(StringVO),
+			passwords: arrayOf(PasswordVO),
+			recovery: optionalOf(PasswordVO),
+			backup: nullableOf(PasswordVO),
+		};
+
+		class Account extends entityOf(accountProperties, "wrapper-account") {}
+
+		const account = (): Account =>
+			new Account({
+				names: ["Alan"],
+				passwords: ["StrongPass1!", "StrongPass2!"],
+				recovery: "StrongPass3!",
+				backup: "StrongPass4!",
+			});
+
+		it("redacts a sensitive value-object inside a list", () => {
+			expect(account().toSafeJSON().passwords).toEqual([
+				"[redacted]",
+				"[redacted]",
+			]);
+		});
+
+		it("redacts a sensitive value-object under a single-valued wrapper", () => {
+			const safe = account().toSafeJSON();
+
+			expect(safe.recovery).toBe("[redacted]");
+			expect(safe.backup).toBe("[redacted]");
+		});
+
+		it("leaves a list of non-sensitive value-objects alone", () => {
+			expect(account().toSafeJSON().names).toEqual(["Alan"]);
+		});
+
+		it("keeps the secret out of toString() and the inspect hook", () => {
+			const one = account();
+
+			expect(one.toString()).not.toContain("StrongPass1!");
+
+			const inspect = (
+				one as unknown as {
+					[key: symbol]: (() => Record<string, unknown>) | undefined;
+				}
+			)[Symbol.for("nodejs.util.inspect.custom")];
+
+			expect(inspect).toBeFunction();
+			expect(inspect?.call(one).recovery).toBe("[redacted]");
+		});
+
+		it("never redacts toJSON — a wrapped key still has to round-trip", () => {
+			const raw = account().toJSON();
+
+			expect(raw.passwords).toEqual(["StrongPass1!", "StrongPass2!"]);
+			expect(new Account(raw).passwords).toEqual([
+				"StrongPass1!",
+				"StrongPass2!",
+			]);
 		});
 	});
 });

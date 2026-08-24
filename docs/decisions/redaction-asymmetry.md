@@ -32,9 +32,29 @@ which is the whole reason partial masking (`a***@b.dev`) is expressible. Ready-v
 discriminated by `typeof`, exactly as `meta.default` does for its thunk form, so a placeholder
 that is itself a function cannot be expressed.
 
+## A wrapper carries the inner class's declaration, not one of its own
+
+`Wrapper.toSafeJSON` takes the container branch, and each item applies its own rules. For an
+entity or record item that means recursing into its `toSafeJSON`; for a **value-object** item
+there is no `toSafeJSON` to recurse into, so the wrapper reads the wrapped class's own
+`defineMeta` (`metaOf`, resolved once per wrapper class) and redacts when it says
+`sensitive: true`.
+
+Without that, `arrayOf(PasswordVO)` printed its secrets through `toString()` and the inspect
+hook while the same key unwrapped redacted — wrapping a class must not un-declare what the
+class declares. It is also what makes the documented promise true: `arrayOf` wraps a *class*,
+inheriting its `transform`, `validate` **and** `sensitive`, where `customArrayVO` wraps a
+schema.
+
+The context handed to a placeholder function is the item's, not the owner's: `name` is the
+item's index (or `"value"` for a single-valued kind) and `source` is the wrapper's own
+(`"array-of"`, `"optional-of"`, `"nullable-of"`) — the same identification `buildItem` puts in
+an item's error context, and the same trade a nested entity already makes.
+
 ## Known limitation
 
 An entity or record that names a **nested** record or entity in `sensitive: [...]` does not
 redact it: `isSensitive` answers `true`, but `toSafeJSON` takes the recursive branch and the
-sub-object applies its own keys instead. Same for a wrapped key — the container branch is
-taken and each item applies its own rules.
+sub-object applies its own keys instead. Same for a **wrapped** key: the container branch is
+taken and each item applies its own rules, so naming the key adds nothing the items do not
+already declare.

@@ -112,6 +112,11 @@ Silent or hard-to-diagnose failures. Each one has bitten this repo.
   while the module graph loads fine.
 - **Every mapped type over a blueprint must go through `DomainKeys<Shape>`** (or its pillar's
   equivalent), or the `Rules` symbol slot leaks as an accessor, a schema field and a serialized key.
+- **Every conditional over a blueprint *property* needs all four branches** — value-object, entity,
+  record, wrapper. A missing branch falls through to `never` (or to `false`), which type-checks and
+  says nothing: that is how `SchemaOf`, `CommandSchemaOf` and `EntityHas` each ended up lying about a
+  runtime that was correct. Probe the wrapper's two statics **inline** (never `extends AnyWrapperClass`
+  — TS2589) and write that branch first.
 - **The `biome-ignore` comments on `demo`/`fromJSON` are load-bearing**: `biome check --fix` (which
   `bun run build` runs) classifies `noThisInStatic` as a *safe* fix and would rewrite the `this` into the
   abstract base, making those statics build the base instead of the subclass.

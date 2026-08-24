@@ -1,7 +1,11 @@
 import type { IDomainEvent } from "@/domain/domain-event/types";
 import type { WrappableClass } from "@/domain/entity/types/wrappable-class.type";
+import { metaOf } from "@/domain/value-object/helpers";
 import { isValueObject } from "@/shared/helpers/is-value-object";
+import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
 import { rawOf } from "@/shared/helpers/raw-of";
+import { redactedValue } from "@/shared/redaction/redaction-config";
+import type { ISensitiveKey } from "@/shared/redaction/sensitive-keys-of";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import type { t } from "@roastery/terroir";
 import type { AnyWrapperClass } from "../types/any-wrapper-class.type";
@@ -53,6 +57,41 @@ export function defineWrapper<
 	Kind extends WrapperKind,
 	Inner extends WrappableClass,
 >(kind: Kind, inner: Inner, source: string): WrapperClassOf<Kind, Inner> {
+	/**
+	 * The wrapped class's own redaction settings, resolved on first use and
+	 * kept for the life of this wrapper class.
+	 *
+	 * Memoized for the reason `sensitiveKeysOf` memoizes its own map: `metaOf`
+	 * builds a probe and runs `defineMeta()` on every call, so reading it per
+	 * serialization would pay that on every `toString()`. `null` means "not a
+	 * value-object, nothing to read" — resolved lazily rather than at class
+	 * creation so a wrapper that is never redacted never runs `defineMeta` at
+	 * all.
+	 */
+	let redaction: ISensitiveKey | null | undefined;
+
+	/**
+	 * Replaces one wrapped value-object's value when its class declared itself
+	 * sensitive, and hands it back untouched otherwise.
+	 *
+	 * @param value - The item's real value.
+	 * @param name - The item's index, or `"value"` for a single-valued kind.
+	 * @returns The replacement, or `value` when the wrapped class is not
+	 *   sensitive.
+	 */
+	function redactedItem(value: unknown, name: string): unknown {
+		if (redaction === undefined) {
+			const meta = isValueObjectClass(inner) ? metaOf(inner) : undefined;
+
+			redaction =
+				meta?.sensitive === true ? { redactWith: meta.redactWith } : null;
+		}
+
+		return redaction === null
+			? value
+			: redactedValue(value, { name, source }, redaction.redactWith);
+	}
+
 	class Wrapper {
 		/** The wrapped class — the single source both the runtime and the type level read. */
 		public static readonly wraps: Inner = inner;
@@ -154,17 +193,24 @@ export function defineWrapper<
 
 		/**
 		 * The redacted view: each item applies its **own** declared sensitive
-		 * keys. A wrapper declares none — it has no blueprint of its own — so a
-		 * wrapped value-object surfaces its value here, exactly as an
-		 * entity-valued key already does when the owner names it in
-		 * `sensitive: [...]`.
+		 * keys. A wrapper declares none of its own — it has no blueprint to
+		 * mark a key on — so an entity or record item recurses into its
+		 * `toSafeJSON`, and a **value-object item is redacted when its class
+		 * declares `sensitive: true`**.
+		 *
+		 * That last case is the whole reason this is not a plain projection:
+		 * a value-object has no `toSafeJSON` to recurse into, so without it
+		 * `arrayOf(PasswordVO)` would print its secrets through `toString()`
+		 * and through the inspect hook, while the same unwrapped key redacts.
+		 * Wrapping a value-object must not un-declare what the value-object
+		 * declares.
 		 *
 		 * @returns The serialized contents, each item redacted by its own rules.
 		 */
 		public toSafeJSON(): unknown {
-			return this.#collect((item) =>
+			return this.#collect((item, name) =>
 				isValueObject(item)
-					? item.value
+					? redactedItem(item.value, name)
 					: (item as { toSafeJSON(): unknown }).toSafeJSON(),
 			);
 		}
@@ -203,11 +249,18 @@ export function defineWrapper<
 		 * Applies a per-item projection and restores the declared multiplicity
 		 * around the result — the shared half of `toJSON` and `toSafeJSON`.
 		 *
+		 * The projection receives the item's **name** alongside it — its index
+		 * for an `arrayOf`, `"value"` otherwise — the same identification
+		 * `buildItem` puts in an item's error context, and what a redaction
+		 * placeholder function reads as the field it is replacing.
+		 *
 		 * @param project - What to read off each built item.
 		 * @returns The projected contents, under the declared multiplicity.
 		 */
-		#collect(project: (item: unknown) => unknown): unknown {
-			const projected = this.#items.map(project);
+		#collect(project: (item: unknown, name: string) => unknown): unknown {
+			const projected = this.#items.map((item, index) =>
+				project(item, kind === "array" ? String(index) : SINGLE_ITEM_NAME),
+			);
 
 			if (kind === "array") return projected;
 

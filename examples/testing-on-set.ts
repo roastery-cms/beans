@@ -7,6 +7,7 @@ import {
     UrlVO,
 } from "@/domain/collections/value-objects";
 import { customRecordVO } from "@/domain/collections/value-objects/custom";
+import { entityHas } from "@/domain/entity/helpers";
 import type { SetHandlersOf } from "@/domain/entity/types";
 import { arrayOf, blueprint, entityOf, optionalOf } from "@/way";
 import { t } from "@roastery/terroir";
@@ -65,7 +66,7 @@ const postProperties = blueprint({
     slug: SlugVO,
     description: StringVO,
     cover: UrlVO,
-    type: optionalOf(PostType),
+    type: PostType,
     tag: arrayOf(PostTag),
     content: StringVO,
     info: customRecordVO(),
@@ -111,4 +112,6 @@ const firstReview = new Post({
     type: musicReview.toJSON(),
 });
 
-console.log(firstReview)
+console.log(entityHas(Post, { tag: arrayOf(PostTag), type: PostType }))
+
+// console.log(firstReview)

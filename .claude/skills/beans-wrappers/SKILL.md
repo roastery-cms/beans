@@ -53,8 +53,19 @@ post.tags[0].rename("Bob"); // the item's verbs stay reachable
   entity already makes.
 - A cycle through a wrapper still throws `CyclicEntityDefinitionException`: the wrapper delegates to the
   same blueprint object, so the inner pillar's `deriving` guard catches it.
-- `sensitive: [...]` on a wrapped key does not redact the whole key — `isSensitive` says `true`,
+- **A wrapped value-object keeps its own `sensitive: true`** — `toSafeJSON` reads the inner class's
+  `defineMeta` through `metaOf` (resolved once per wrapper class) and redacts per item, with the item's
+  index/`"value"` as `name` and the wrapper's `source`. Wrapping a class must not un-declare what it
+  declares. `toJSON` stays lossless.
+- `sensitive: [...]` *naming* a wrapped key does not redact the whole key — `isSensitive` says `true`,
   `toSafeJSON` takes the container branch and each item applies its own rules.
+- **`SchemaOf`'s wrapper branch is `WrappedSchemaOf`** (`t.TArray` / `t.TUnion` with `t.TUndefined` or
+  `t.TNull`), mirroring `wrapperModelFor`. `CommandSchemaOf` reaches the same type through
+  `CommandPropertySchemaOf`. Before those existed a wrapped key typed as `never` while the runtime was
+  correct — the quiet kind of wrong, and the shape to check for in any new mapped type over a blueprint.
+- **`entityHas`/`EntityHas` compare a wrapper by its two statics**, never by identity: every `arrayOf(X)`
+  call mints a fresh class. Multiplicity is part of the shape there — `{ tags: PostTag }` does not match
+  `tags: arrayOf(PostTag)`.
 
 > Detail: [wrapper-type-constraints.md](../../../docs/decisions/wrapper-type-constraints.md)
 > · [typescript-traps.md](../../../docs/decisions/typescript-traps.md)

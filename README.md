@@ -643,6 +643,41 @@ order.shipOrFail();  // if it throws: raises OrderShippingFailed built from the 
 - Neither `await`s a returned `Promise` — an `async` method's `emit`/`onError` react once the synchronous call returns (or synchronously throws), not once the promise settles or rejects.
 - Applies to instance methods only; decorating a `static` method is not guarded at compile time or runtime.
 
+### Asserting a blueprint's shape
+
+`entityHas` — and its compile-time twin `EntityHas` — answer one question about a class: does this blueprint carry these keys, backed by these classes? It exists to gate code on a shape rather than on a name, most often a port method or a generic helper that only makes sense for aggregates carrying a particular key.
+
+```typescript
+const postProperties = blueprint({
+  title: StringVO,
+  authorId: PostAuthorId,       // class PostAuthorId extends UuidVO {}
+  tags: arrayOf(PostTag),
+  type: optionalOf(PostType),
+  price: Money,                 // a DomainRecord
+}).done();
+
+class Post extends entityOf(postProperties, "post") {}
+
+entityHas(Post, { authorId: UuidVO });          // true  — a subclass satisfies its parent
+entityHas(Post, { price: Money });              // true  — a record key, like any other
+entityHas(Post, { tags: arrayOf(PostTag) });    // true  — a fresh wrapper still matches
+entityHas(Post, { type: optionalOf(PostType) });// true
+entityHas(Post, { type: PostType });            // false — the key holds an optionalOf
+entityHas(Post, { title: SlugVO });             // false — different schema
+entityHas(Post, { publishedAt: UuidVO });       // false — no such key
+
+// The type resolves to the boolean literal, so it composes with a conditional
+type WithAuthorLookup = EntityHas<typeof Post, { authorId: typeof UuidVO }> extends true
+  ? { findByAuthorId(id: string): Promise<Post | null> }
+  : {};
+```
+
+- **All four blueprint kinds are answerable** — a value-object, a nested entity, a nested record and a multiplicity wrapper around any of those three. The expected shape is written in the same vocabulary the blueprint is written in.
+- **A subclass satisfies its parent**, in every kind and inside a wrapper too: `arrayOf(VipTag)` satisfies `arrayOf(Tag)`. The check is structural, so a domain-vocabulary alias that adds nothing of its own is indistinguishable from the class it aliases — which is what makes the aliasing pattern work here rather than a loophole.
+- **Multiplicity is part of the shape.** `{ tags: PostTag }` does not match `tags: arrayOf(PostTag)`, and `optionalOf` does not match `nullableOf`. Write the wrapper the blueprint writes.
+- **The wrapper you pass is read, never used** — only its `wraps` and `wrapperKind` statics. Writing `arrayOf(PostTag)` inline in the argument is therefore safe, unlike in a blueprint, where the usual rule holds: call a class-returning factory once, at module scope. Two separate calls to a *value-object* factory (`customRecordVO()` twice) are one type and two objects, so the type says `true` where the runtime says `false` — the one place the two halves cannot agree.
+- **An empty expected shape is `true`**, vacuously. Nothing constructs an instance: the blueprint is read through the same `Object.create` probe `fromJSON` uses.
+
 ---
 
 ## DomainRecord
@@ -754,7 +789,8 @@ Key rules:
 - **Call the factories at module scope, once.** Each call mints a fresh class and a fresh schema, like every other class factory here.
 - **A wrapper does not wrap a wrapper.** `arrayOf(arrayOf(Tag))` is not part of the vocabulary — a list of lists is better modeled as a record with a named verb.
 - **A cycle through a wrapper is still a cycle.** `{ children: arrayOf(Node) }` inside `Node`'s own blueprint throws `CyclicEntityDefinitionException`, exactly as direct nesting does.
-- **`sensitive: [...]` on a wrapped key does not redact the whole key.** `isSensitive` answers `true`, but `toSafeJSON` takes the container branch and each item applies its own rules — the same pre-existing limitation an entity- or record-valued key has.
+- **A wrapped value-object keeps its own `sensitive: true`.** `arrayOf(PasswordVO)` redacts every item in `toSafeJSON()`, `toString()` and the inspect hook, exactly as the unwrapped key would — wrapping a class must not un-declare what the class declares. `toJSON()` stays lossless, as it does everywhere on an `Entity`.
+- **`sensitive: [...]` naming a wrapped key does not redact the whole key.** `isSensitive` answers `true`, but `toSafeJSON` takes the container branch and each item applies its own rules — the same pre-existing limitation an entity- or record-valued key has. The per-item redaction above is what a wrapped *value-object* still gets.
 - **`arrayOf(EmailVO)` and `customArrayVO(EmailSchema)` both exist, and neither is deprecated.** The first wraps a **class**, inheriting its `transform`, `validate` and `sensitive`; the second wraps a **schema**.
 
 A `Command` blueprint accepts wrappers too, including one around an `Entity` — an asymmetry worth naming, since a bare `Entity` key stays a compile error there. A wrapper makes no judgment about what it holds, and the transitive reach was already open anyway (a record blueprint may hold an entity).
@@ -1472,6 +1508,8 @@ user.toSafeJSON();  // { …, password: "[redacted]" }    ← what the logger se
 `${user}`;          // redacted
 ```
 
+**A multiplicity wrapper is transparent to the declaration.** `arrayOf(PasswordVO)`, `optionalOf(PasswordVO)` and `nullableOf(PasswordVO)` redact per item, so wrapping a value-object never widens what a log can see. What a wrapper cannot carry is a declaration of its *own*: it has no blueprint, so naming a wrapped key in `sensitive: [...]` marks it for `isSensitive` and leaves the redaction to the items — see [Multiplicity wrappers](#multiplicity-wrappers).
+
 ### Choosing what, and how
 
 Two sources decide **which** keys are redacted, and they answer different questions:
@@ -1706,6 +1744,7 @@ import type {
   WrappedInputOf,
   WrappedRawOf,
   WrappedReadOf,
+  WrappedSchemaOf,
   WrapperClassOf,
   WrapperKind,
 } from "@roastery/beans/domain/wrapper/types";
@@ -1866,6 +1905,8 @@ Every item here is a consequence of a choice stated elsewhere in this README. Th
 - **The double's ordering is JavaScript's, not a database's.** Strings compare by UTF-16 code unit, so a case or accent ordering that depends on a collation will differ from Postgres. A `customBinaryVO` key is a base64 string, so it is orderable and the order means nothing.
 
 - **`sensitive` has two declaration sites and only one closes the port.** `sensitive: true` on a value-object suppresses that key's lookup methods; `sensitive: ["token"]` on `defineEntity`/`entityOf` redacts and answers `isSensitive` but suppresses nothing. See [It also shapes the repository port](#it-also-shapes-the-repository-port) — the literal does not survive into the class type, and diverging would break the equivalence `entityOf` and the hand-written form are deliberately kept at.
+
+- **`sensitive: [...]` cannot reach *into* a nested or wrapped key.** Naming an entity-, record- or wrapper-valued key on `defineEntity`/`entityOf` makes `isSensitive` answer `true`, but `toSafeJSON` takes the recursive branch and the sub-object applies its own declared keys instead. A wrapped **value-object** is the one case that does redact, from its own `sensitive: true`. Declare the secret where it lives.
 
 - **The accessor type merge is the one silent failure left.** In the hand-written class form, skipping `interface X extends AccessorsOf<…> {}` leaves the accessors working at runtime and invisible to the type system. `entityOf` removes the line, and with it the failure mode — everything else in the package fails loudly, with an exception naming the cause.
 

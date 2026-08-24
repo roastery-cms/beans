@@ -62,6 +62,15 @@ Two type-level constraints are load-bearing and were both **measured**, not gues
 - An item's exception reports the wrapper's `source` (`"array-of"`, `"optional-of"`,
   `"nullable-of"`) and the item's index or `"value"` as its name, not the owning blueprint's key
   — the same trade a nested entity already makes.
+- **Two places the wrapper landing did not reach, fixed after the fact.** `SchemaOf`
+  (`domain/entity/types`) had an entity branch and a record branch and no wrapper one, so a
+  wrapped key typed as `never` inside `EntitySchemaOf`/`RecordSchemaOf` while `wrapperModelFor`
+  built the right schema at runtime; `WrappedSchemaOf` is now its wrapper branch, and
+  `CommandSchemaOf` — which was value-object-only, and therefore wrong for record keys too —
+  goes through `CommandPropertySchemaOf`. `EntityHas`/`entityHas` were the other: value-object-
+  only on both halves, and unable to compare a wrapper at all at runtime, since every
+  `arrayOf(X)` call mints a fresh class. It compares the two statics instead — see
+  `PropertyClassMatches` and `propertyMatches`.
 - `arrayOf(EmailVO)` and `customArrayVO(EmailSchema)` coexist: the first wraps a *class*
   (inheriting its `transform`/`validate`/`sensitive`), the second a *schema*. Neither is
   deprecated.

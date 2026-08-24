@@ -10,7 +10,7 @@
  * - {@link BlueprintBuilder} — what `blueprint(shape)` returns, carrying `with`.
  * - {@link EntityClassOf} — the class `entityOf` returns.
  * - {@link EntityDefinition} — what `defineEntity()` returns.
- * - {@link EntityHas} — whether an entity's blueprint has a given VO-backed shape.
+ * - {@link EntityHas} — whether an entity's blueprint has a given shape, at the type level.
  * - {@link EntityHasShapeBase} — the base constraint of `EntityHas`'s `ExpectedShape`.
  * - {@link IEntity} — the behavioural contract of every entity.
  * - {@link IRawEntity} — the serialized identity fields.

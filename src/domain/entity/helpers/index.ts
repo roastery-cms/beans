@@ -3,7 +3,7 @@
  *
  * Re-exports:
  * - {@link entityOf} — builds an `Entity` base class already bound to a blueprint.
- * - {@link entityHas} — runtime check for whether a blueprint has a given VO-backed shape.
+ * - {@link entityHas} — runtime check for whether a blueprint has a given shape.
  * - {@link blueprint} — declares a blueprint carrying domain rules (`default` / `derive`).
  * - {@link deepEquals} — structural equality over JSON-shaped DTO values.
  * - {@link generateUUID} — UUID v7 generator (thin wrapper around `@roastery/terroir`'s `uuid.v7()`).
