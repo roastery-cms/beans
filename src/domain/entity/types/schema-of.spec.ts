@@ -1,4 +1,8 @@
-import { BooleanVO, IntegerVO, StringVO } from "@/domain/collections/value-objects";
+import {
+	BooleanVO,
+	IntegerVO,
+	StringVO,
+} from "@/domain/collections/value-objects";
 import { blueprint, entityOf } from "@/domain/entity/helpers";
 import type { EntitySchemaOf } from "@/domain/entity/types/entity-schema-of.type";
 import type { SchemaOf } from "@/domain/entity/types/schema-of.type";
@@ -57,7 +61,9 @@ describe("SchemaOf", () => {
 	});
 
 	it("applies the multiplicity the runtime applies", () => {
-		assertEqual<Equal<SchemaOf<typeof TagList>, t.TArray<SchemaOf<typeof Tag>>>>();
+		assertEqual<
+			Equal<SchemaOf<typeof TagList>, t.TArray<SchemaOf<typeof Tag>>>
+		>();
 		assertEqual<
 			Equal<
 				SchemaOf<typeof MaybeTag>,
@@ -81,10 +87,7 @@ describe("SchemaOf", () => {
 			Equal<[Properties["tags"]] extends [never] ? true : false, false>
 		>();
 		assertEqual<
-			Equal<
-				Properties["tags"] extends t.TArray<t.TSchema> ? true : false,
-				true
-			>
+			Equal<Properties["tags"] extends t.TArray<t.TSchema> ? true : false, true>
 		>();
 
 		expect(true).toBe(true);

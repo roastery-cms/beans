@@ -1,9 +1,13 @@
 import { BoundEntity } from "@/domain/entity/entity";
 import type {
-	EntityClassOf,
 	EntityDefinition,
 	PropertiesShapeBase,
 } from "@/domain/entity/types";
+// Direct, not through the barrel: `types/index.ts` re-exports this module while
+// this module reaches `entity.ts`, which imports the barrel back. The cycle is
+// erased at runtime by `verbatimModuleSyntax`, but `tsup --dts` bundles types
+// for real and cannot order the two across separate entry-point chunks.
+import type { EntityClassOf } from "@/domain/entity/types/entity-class-of.type";
 
 /**
  * Builds an `Entity` base class already bound to a blueprint, so a subclass

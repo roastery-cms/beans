@@ -1,6 +1,7 @@
 import type { WrappableClass } from "@/domain/entity/types/wrappable-class.type";
 import type { WrappedItemReadOf } from "./wrapped-item-read-of.type";
 import type { WrapperKind } from "./wrapper-kind.type";
+import type { WrappedAs } from "./wrapped-as.type";
 
 /**
  * What a wrapped blueprint key reads back as — through `get`, through the
@@ -17,12 +18,10 @@ import type { WrapperKind } from "./wrapper-kind.type";
  * @typeParam Inner - The wrapped blueprint class.
  *
  * @see {@link WrappedItemReadOf} — the per-item rule this applies a multiplicity over.
+ * @see {@link WrappedAs} — the multiplicity rule this applies its per-item
+ *   type through, shared with every other `Wrapped*Of`.
  */
 export type WrappedReadOf<
 	Kind extends WrapperKind,
 	Inner extends WrappableClass,
-> = Kind extends "array"
-	? readonly WrappedItemReadOf<Inner>[]
-	: Kind extends "optional"
-		? WrappedItemReadOf<Inner> | undefined
-		: WrappedItemReadOf<Inner> | null;
+> = WrappedAs<Kind, WrappedItemReadOf<Inner>>;

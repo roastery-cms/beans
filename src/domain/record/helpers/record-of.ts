@@ -1,9 +1,7 @@
 import { BoundRecord } from "../record";
-import type {
-	RecordClassOf,
-	RecordDefinition,
-	RecordPropertiesShapeBase,
-} from "../types";
+import type { RecordDefinition, RecordPropertiesShapeBase } from "../types";
+// Direct, not through the barrel — see the note in `entity/helpers/entity-of.ts`.
+import type { RecordClassOf } from "../types/record-class-of.type";
 
 /**
  * Returns a `DomainRecord` base class already bound to a blueprint, so a

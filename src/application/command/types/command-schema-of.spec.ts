@@ -58,7 +58,10 @@ describe("CommandSchemaOf", () => {
 			Equal<[Properties["labels"]] extends [never] ? true : false, false>
 		>();
 		assertEqual<
-			Equal<Properties["labels"] extends t.TArray<t.TSchema> ? true : false, true>
+			Equal<
+				Properties["labels"] extends t.TArray<t.TSchema> ? true : false,
+				true
+			>
 		>();
 		assertEqual<
 			Equal<[Properties["discount"]] extends [never] ? true : false, false>

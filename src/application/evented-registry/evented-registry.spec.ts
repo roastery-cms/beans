@@ -301,8 +301,8 @@ describe("eventedRegistry", () => {
 
 		await registry.get("confirmOrder")({ total: 9 });
 
-		expect(captured?.eventName).toBe("order.confirmed");
-		expect((captured?.error as Error).message).toBe("boom");
+		expect(captured!.eventName).toBe("order.confirmed");
+		expect((captured!.error as Error).message).toBe("boom");
 	});
 
 	// The `onError = defaultOnError` default in the options destructuring: with

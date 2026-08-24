@@ -58,7 +58,7 @@ import type { WrapperKind } from "@/domain/wrapper/types/wrapper-kind.type";
  * ```
  *
  * @see {@link MatchingEntityHasKeys} — the mapped type applying this per key.
- * @see `propertyMatches` in `../helpers/entity-has` — the runtime half, which
+ * @see `propertyMatches` in `@/shared/helpers/property-matches` — the runtime half, which
  *   answers the same question about the same four kinds.
  */
 export type PropertyClassMatches<Actual, Expected> = Actual extends {

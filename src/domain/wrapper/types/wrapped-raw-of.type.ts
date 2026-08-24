@@ -1,6 +1,7 @@
 import type { WrappableClass } from "@/domain/entity/types/wrappable-class.type";
 import type { RawValueOf } from "@/domain/entity/types/raw-value-of.type";
 import type { WrapperKind } from "./wrapper-kind.type";
+import type { WrappedAs } from "./wrapped-as.type";
 
 /**
  * The **serialized** form of a wrapped blueprint property: an array of the
@@ -15,12 +16,10 @@ import type { WrapperKind } from "./wrapper-kind.type";
  * @typeParam Inner - The wrapped blueprint class.
  *
  * @see `RawValueOf` in `@/domain/entity/types` — the per-item definition.
+ * @see {@link WrappedAs} — the multiplicity rule this applies its per-item
+ *   type through, shared with every other `Wrapped*Of`.
  */
 export type WrappedRawOf<
 	Kind extends WrapperKind,
 	Inner extends WrappableClass,
-> = Kind extends "array"
-	? readonly RawValueOf<Inner>[]
-	: Kind extends "optional"
-		? RawValueOf<Inner> | undefined
-		: RawValueOf<Inner> | null;
+> = WrappedAs<Kind, RawValueOf<Inner>>;

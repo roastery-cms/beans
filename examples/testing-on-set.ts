@@ -7,7 +7,7 @@ import {
     UrlVO,
 } from "@/domain/collections/value-objects";
 import { customRecordVO } from "@/domain/collections/value-objects/custom";
-import { entityHas } from "@/domain/entity/helpers";
+import { entityHas, reshapeShape, reshapeTo } from "@/domain/entity/helpers";
 import type { SetHandlersOf } from "@/domain/entity/types";
 import { arrayOf, blueprint, entityOf, optionalOf } from "@/way";
 import { t } from "@roastery/terroir";
@@ -61,6 +61,13 @@ class PostType extends entityOf(postTypeProperties, "post-type") {
     }
 }
 
+/**
+ * Minted once, at module scope. `reshapeTo` compares a value-object key by
+ * identity-or-subclass, so a second `customRecordVO()` call would be a
+ * different class and the reshape would reject `info`.
+ */
+const InfoVO = customRecordVO();
+
 const postProperties = blueprint({
     name: StringVO,
     slug: SlugVO,
@@ -69,7 +76,7 @@ const postProperties = blueprint({
     type: PostType,
     tag: arrayOf(PostTag),
     content: StringVO,
-    info: customRecordVO(),
+    info: InfoVO,
 }).with({ slug: { derive: (ctx) => ctx.name } });
 
 class Post extends entityOf(postProperties, "post") {
@@ -112,6 +119,36 @@ const firstReview = new Post({
     type: musicReview.toJSON(),
 });
 
-console.log(entityHas(Post, { tag: arrayOf(PostTag), type: PostType }))
+// console.log(entityHas(Post, { tag: arrayOf(PostTag), type: PostType }))
 
-// console.log(firstReview)
+// A reshape target, not a blueprint: a key may nest another target, and a
+// nested one adopts the source's multiplicity — `tag` comes back as an array
+// because `Post` declares `arrayOf(PostTag)`, not because the target says so.
+const postTypeReshaped = reshapeShape({
+    name: StringVO,
+    shape: SchemaVO,
+});
+
+const postTagReshaped = reshapeShape({ name: StringVO });
+
+const postReshaped = reshapeShape({
+    name: StringVO,
+    description: StringVO,
+    type: postTypeReshaped,
+    tag: postTagReshaped,
+    content: StringVO,
+    info: InfoVO,
+});
+
+console.log(reshapeTo(postReshaped, firstReview));
+/*
+{
+  id, createdAt,
+  name: "Lupe de Lupe – Amor",
+  description: "Testing Description",
+  type: { id, createdAt, name: "Music Review", shape: "…" },
+  tag: [{ id, createdAt, name: "Noise" }, { id, createdAt, name: "Indie Rock" }],
+  content: "Testing",
+  info: { group: "Lupe de Lupe", albumName: "Amor", releasedAt: "…" },
+}
+*/

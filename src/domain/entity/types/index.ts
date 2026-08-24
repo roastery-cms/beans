@@ -17,6 +17,9 @@
  * - {@link PropertiesShapeBase} — the base constraint of every blueprint.
  * - {@link PropertyRule} — the domain rule behind one blueprint property.
  * - {@link RawContextOf} — the constructor payload of a subclass.
+ * - {@link ReshapableModel} — what `reshapeTo` accepts as its source.
+ * - {@link ReshapeShapeBase} — the base constraint of every `reshapeTo` target.
+ * - {@link ReshapedTo} — what `reshapeTo` returns for a given target and source.
  * - {@link RuledBlueprint} — a blueprint carrying its rules.
  * - {@link RulesOf} — the rule map a blueprint may declare.
  * - {@link SerializedEntity} — what `toJSON()` returns / `fromJSON` accepts.
@@ -33,6 +36,9 @@ export type { PropertiesShapeBase } from "./properties-shape-base.type";
 export type { PropertyRule } from "./property-rule.type";
 export type { RawContextOf } from "./raw-context-of.type";
 export type { IRawEntity } from "./raw-entity.interface";
+export type { ReshapableModel } from "./reshapable-model.type";
+export type { ReshapeShapeBase } from "./reshape-shape-base.type";
+export type { ReshapedTo } from "./reshaped-to.type";
 export type { RuledBlueprint } from "./ruled-blueprint.type";
 export type { RulesOf } from "./rules-of.type";
 export type { SetHandlerOf } from "./set-handler-of.type";

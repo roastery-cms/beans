@@ -678,6 +678,52 @@ type WithAuthorLookup = EntityHas<typeof Post, { authorId: typeof UuidVO }> exte
 - **The wrapper you pass is read, never used** — only its `wraps` and `wrapperKind` statics. Writing `arrayOf(PostTag)` inline in the argument is therefore safe, unlike in a blueprint, where the usual rule holds: call a class-returning factory once, at module scope. Two separate calls to a *value-object* factory (`customRecordVO()` twice) are one type and two objects, so the type says `true` where the runtime says `false` — the one place the two halves cannot agree.
 - **An empty expected shape is `true`**, vacuously. Nothing constructs an instance: the blueprint is read through the same `Object.create` probe `fromJSON` uses.
 
+### Reshaping onto a target shape
+
+`entityHas` answers *is this key backed by this class?* and hands back a boolean. `reshapeTo` asks the neighbouring question — *can this instance be cut down to this shape?* — and hands back the payload. It checks the source against the target, serializes it, and drops everything the target did not ask for.
+
+```typescript
+import { reshapeShape, reshapeTo } from "@roastery/beans/domain/entity/helpers";
+
+class AuthorCard extends entityOf({ name: StringVO }, "author-card") {}
+class TagCard extends entityOf({ slug: SlugVO }, "tag-card") {}
+
+const cardShape = reshapeShape({ title: StringVO, author: AuthorCard, tags: arrayOf(TagCard) });
+
+reshapeTo(cardShape, post);
+// {
+//   id, createdAt,                       // identity rides along
+//   title: "A Post",
+//   author: { id, createdAt, name: "Ada" },      // bio and email cut
+//   tags: [{ id, createdAt, slug: "one" }, …],   // cut item by item
+// }
+
+PostCard.fromJSON(reshapeTo(cardShape, post)); // the intended use
+```
+
+`reshapeShape` is the identity function `blueprint(...).done()` is — it exists for `const` inference and to name the concept. **A target is not a blueprint**: it never reaches `entityOf`/`recordOf`, it carries no rules, and a key may nest another target instead of naming a class. That last part is what saves declaring a throwaway subclass per level:
+
+```typescript
+const nameOnly = reshapeShape({ name: StringVO });
+
+const cardShape = reshapeShape({
+  title: StringVO,
+  author: nameOnly,       // source: `author: Author`             -> one object
+  contributors: nameOnly, // source: `contributors: arrayOf(Author)` -> an array
+  editor: nameOnly,       // source: `editor: optionalOf(Author)` -> the object or undefined
+});
+```
+
+**A class states multiplicity; a nested target does not.** A class in the target still has to match the source's multiplicity exactly. A nested target says nothing about it and adopts the source's — and says nothing about identity either, so that too comes from the source: a nested entity contributes it, a nested record has none to give. A nested target against a key holding a *value object* throws: there is no aggregate to cut.
+
+- **The instance is never touched.** The return is a fresh DTO — what `toJSON()` would have produced, minus the keys outside the target blueprint.
+- **The cut is recursive.** A nested entity, a nested record and every item of a wrapper are narrowed too, each against the class or nested target declared for that key.
+- **Nested classes are matched structurally; value-objects nominally.** `AuthorCard` need share nothing with the `Author` the source declares — that is the whole point. At the value-object leaf the rule is `entityHas`'s, shared with it verbatim: the declared class or a subclass of it. So two separate `customRecordVO()` calls do *not* match — mint the class once, at module scope, and reference it from both sides.
+- **Identity rides along when the source is an `Entity`**, at the root and at every nested level, which is what makes the result feed another entity's `fromJSON`. A `DomainRecord` has none to give and contributes none. The return type says so too — `ReshapedTo` reads it off the source's own `toJSON`.
+- **Multiplicity is part of the shape for a class target**, and for the same reason: `optionalOf(TagCard)` does not accept a key holding an `arrayOf`. A *nested target* is the deliberate exception — it declares no multiplicity and inherits the source's.
+- **A mismatch throws `InvalidPropertyException`**, its `property` carrying the dotted path to the offending key (`"author.twitter"`, `"tags[].headline"`), before anything is projected.
+- **Rules do not participate, and nothing is redacted.** `default`/`derive` act on construction input, not on an instance already built, so a `default` cannot stand in for a key the source lacks. The cut is taken from `toJSON()`, not `toSafeJSON()` — redacting would break the round trip that makes the payload hydratable.
+
 ---
 
 ## DomainRecord
@@ -1696,7 +1742,7 @@ import { NullableStringVO, NullableUuidVO } from "@roastery/beans/way/collection
 import { customStringVO, defineValueObject as wayDefineValueObject } from "@roastery/beans/way/collections/value-objects/custom";
 
 // Entity subpaths
-import { blueprint as entityBlueprint, deepEquals, entityHas, entityOf, generateUUID, uniqueKeysOf } from "@roastery/beans/domain/entity/helpers";
+import { blueprint as entityBlueprint, deepEquals, entityHas, entityOf, generateUUID, reshapeShape, reshapeTo, uniqueKeysOf } from "@roastery/beans/domain/entity/helpers";
 import type {
   AccessorsOf,
   BlueprintBuilder,
@@ -1709,6 +1755,9 @@ import type {
   PropertiesShapeBase,
   PropertyRule,
   RawContextOf,
+  ReshapableModel,
+  ReshapeShapeBase,
+  ReshapedTo,
   RuledBlueprint,
   RulesOf,
   SerializedEntity,

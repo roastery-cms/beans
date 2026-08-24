@@ -31,7 +31,10 @@
  * Re-exports, grouped by what they're for:
  * - **Domain modeling** — {@link blueprint} (declare properties + rules),
  *   {@link entityOf} (bind a blueprint to an `Entity` base with no
- *   `defineEntity()`/interface merge).
+ *   `defineEntity()`/interface merge) and the {@link reshapeShape} /
+ *   {@link reshapeTo} pair (declare a narrower shape, then cut a built entity
+ *   or record down to it, so one aggregate can feed a narrower one without
+ *   hand-written mapping code).
  * - **Domain events** — {@link defineDomainEvent} (a payload-less event
  *   class from just its name).
  * - **Use cases** — {@link defineUseCase} (bind a blueprint to a
@@ -72,7 +75,12 @@
  *   escape hatch every other precise form keeps.
  */
 
-export { blueprint, entityOf } from "@/domain/entity/helpers";
+export {
+	blueprint,
+	entityOf,
+	reshapeShape,
+	reshapeTo,
+} from "@/domain/entity/helpers";
 
 export { recordOf } from "@/domain/record/helpers";
 
