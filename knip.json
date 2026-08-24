@@ -2,6 +2,6 @@
 	"$schema": "https://unpkg.com/knip@5/schema.json",
 	"entry": ["src/**/index.{js,ts}"],
 	"project": ["src/**/*.{js,ts}"],
-	"ignoreDependencies": ["@commitlint/cli"],
-	"ignoreBinaries": ["tsup", "tsc"]
+	"ignoreDependencies": ["@commitlint/cli", "@biomejs/biome"],
+	"ignoreBinaries": ["tsup", "tsc", "biome"]
 }
