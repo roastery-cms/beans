@@ -116,7 +116,7 @@ It stops where the opinions start, on purpose:
 
 - **No `Result`/`Either`.** Invalid data throws a specific, typed exception (`InvalidPropertyException`, `ImmutablePropertyException`, `IncompleteIdentityException`, …), each carrying the property and the source.
 - **No *production* repository, no Unit of Work, no ORM integration.** The `repository` pillar ships the *contract* and nothing else: `RepositoryOf` and the `ICan*` capability types are 100% type-only — no factory, no symbol, no runtime, not one byte emitted. `toJSON`/`fromJSON` are still the persistence boundary, and the adapter on the other side is still yours to write. The one implementation that does ship is `inMemoryRepositoryOf`, and it lives behind `@roastery/beans/testing` precisely so it can't be mistaken for one.
-- **No DI container.** `commandRegistry` only gates access to a fixed, once-supplied dependency record at compile time — it doesn't resolve, construct, or scope dependencies for you.
+- **No DI container.** `commands` only gates access to a fixed, once-supplied dependency record at compile time — it doesn't resolve, construct, or scope dependencies for you.
 - **No event bus and no dispatcher.** `raiseEvent` buffers, `pullDomainEvents` drains, `collectDomainEvents` hands the array to a `Command`'s caller. Publishing is the application's call.
 - **No query side.** `Command` is the write path only.
 
@@ -131,8 +131,8 @@ Where those choices have consequences a caller can actually run into, they are g
 - **Collections** *(domain, aliased under application)* — The Value Object / schema catalog and the custom factories described above.
 - **Command** *(application)* — Blueprint-driven base for orchestrating domain behaviour behind a validated input, resolving to a `CommandResult` (`{ result, events }`). **AggregateCommand** specializes it for a single-aggregate result: `execute()` comes already implemented, the subclass writes `handle()` instead.
 - **Repository** *(domain)* — Type-only ports derived from an entity's blueprint: `RepositoryOf<typeof User, Spec>` builds the contract an adapter implements, out of granular `ICan*` capabilities a use case asks for in its `Deps`. `findByEmail` exists only because the entity declares `email`. **inMemoryRepositoryOf** *(testing)* generates a working double for that same contract, from the same blueprint.
-- **CommandRegistry** *(application)* — Two-phase builder (`commandRegistry(spec).withDependencies(deps)`) that gates access to a set of `Command` subclasses by their declared dependencies, entirely at compile time, and hands back a ready-to-run bound function per command via `get()`. **EventedRegistry** is the same builder, gaining event publishing and reactions (`.on(eventClass, handlerClass)`).
-- **The Roastery Way** *(`@roastery/beans/way`, spans both layers)* — One import path for the low-ceremony subset above: `entityOf`, `recordOf`, the value-object catalog, `defineDomainEvent`, `defineUseCase`, `defineEventHandler`, `commandRegistry`, `eventedRegistry`. Re-exports only — nothing new is implemented.
+- **Commands** *(application)* — Two-phase builder (`commands(spec).withDependencies(deps)`) that gates access to a set of `Command` subclasses by their declared dependencies, entirely at compile time, and hands back a ready-to-run bound function per command via `get()` or a direct accessor. Pass an emitter — `commands(spec, { emitter })` — and the same registry also publishes every event those commands raise and runs the reactions registered with `.on(eventClass, handlerClass)`.
+- **The Roastery Way** *(`@roastery/beans/way`, spans both layers)* — One import path for the low-ceremony subset above: `entityOf`, `recordOf`, the value-object catalog, `defineDomainEvent`, `defineUseCase`, `defineEventHandler`, `commands`. Re-exports only — nothing new is implemented.
 
 ## Technologies
 
@@ -188,7 +188,7 @@ bun link @roastery/beans
 import {
   blueprint, entityOf, recordOf,
   defineDomainEvent, defineUseCase,
-  defineEventHandler, commandRegistry, eventedRegistry,
+  defineEventHandler, commands,
 } from "@roastery/beans/way";
 import { StringVO } from "@roastery/beans/way/collections/value-objects";
 
@@ -216,7 +216,7 @@ const LogBeanPlanted = defineEventHandler<typeof BeanPlanted, Deps>(async (event
 });
 
 // Orchestration — registers the use case, publishes what it raises, runs the reaction
-const registry = eventedRegistry({ plantBean: PlantBean }, emitter)
+const registry = commands({ plantBean: PlantBean }, { emitter })
   .withDependencies({ beans, logger })
   .on(BeanPlanted, LogBeanPlanted);
 
@@ -225,17 +225,30 @@ const { result } = await registry.plantBean({ name: "Arabica" });
 
 ### Start without events
 
-`eventedRegistry` takes a **required** `IEventEmitter`, which means the last step above asks you to decide where events go before you have anywhere to send them. That is a real step to climb on a path whose whole point is a gentle slope, so `way` exports the events-free registry too:
+The `{ emitter }` above is optional — omit it and the last step asks you to decide nothing about where events go:
 
 ```typescript
-import { commandRegistry } from "@roastery/beans/way";
+import { commands } from "@roastery/beans/way";
 
-const registry = commandRegistry({ plantBean: PlantBean }).withDependencies({ beans });
+const registry = commands({ plantBean: PlantBean }).withDependencies({ beans });
 
 const { result, events } = await registry.plantBean({ name: "Arabica" });
 ```
 
-Same spec, same ready-to-run function per key, same `CommandResult` — `events` and all. **Nothing is given up by starting here**: events are still raised by the aggregate and still collected into the result; what is opt-in is *publishing* them. `eventedRegistry` is built on `commandRegistry` and delegates construction and execution to it wholesale, so moving up later is a change of registry, not of use cases — the spec, the dependencies and every `defineUseCase` stay exactly as they are.
+Same spec, same ready-to-run function per key, same `CommandResult` — `events` and all. **Nothing is given up by starting here**: events are still raised by the aggregate and still collected into the result; what is opt-in is *publishing* them (and, with nowhere to publish, there is no `.on()` either). Moving up later is one argument — the spec, the dependencies and every `defineUseCase` stay exactly as they are.
+
+Each option arrives when its own problem does, and they are independent of one another:
+
+```typescript
+// 1. just use cases
+commands(spec).withDependencies(deps);
+
+// 2. + atomicity, the day a use case writes a second aggregate
+commands(spec, { transaction }).withDependencies(deps);
+
+// 3. + publication and reactions, the day there is somewhere to publish
+commands(spec, { transaction, emitter }).withDependencies(deps).on(Event, Handler);
+```
 
 **This is not a third layer.** `domain` and `application` are still the only two layers `beans` has — every name `@roastery/beans/way` (and its `/collections/*` subpath) exports is re-exported verbatim from its original home in one of them; nothing is reimplemented, and the barrel has no behaviour of its own. It's a curated cross-cutting index, picking only the entries whose whole design goal was already minimizing ceremony:
 
@@ -247,7 +260,8 @@ Same spec, same ready-to-run function per key, same `CommandResult` — `events`
 | A domain event | `defineDomainEvent` | `class X extends DomainEvent` + `defineName()` |
 | A use case | `defineUseCase` | `AggregateCommand`/`aggregateCommandOf`/`Command` — reach here directly once a use case needs more than one aggregate as its result |
 | React to an event | `defineEventHandler` | `class X implements IEventHandler<Event, Deps>` |
-| Wire it all up | `commandRegistry` (no events) or `eventedRegistry` (publishes + runs reactions) | (same — both already live in `application`; `way` only shortens the path) |
+| Wire it all up | `commands` (`{ emitter }` opt-in: publishes + runs reactions) | (same — it already lives in `application`; `way` only shortens the path) |
+| Make a use case atomic | `transactional` + `ITransactionRunner` (the `transaction` option is on `commands` itself) | `@roastery/beans/application/command/decorators` · `@roastery/beans/domain/repository/types` |
 
 The value-object catalog lives one level deeper, at `@roastery/beans/way/collections/value-objects` (plus `/optional`, `/nullable`, `/custom`) rather than in the root of `way` itself — flattened into the same barrel as `blueprint`/`entityOf`/`defineUseCase`, its ~75 names would drown the half-dozen that actually shape how a feature is put together. Same split `domain`/`application` already draw for their own catalogs, one level down.
 
@@ -637,7 +651,7 @@ order.shipOrFail();  // if it throws: raises OrderShippingFailed built from the 
 
 - **`emit`** fires once the method body has returned — **never** if it throws; there is no `try`/`catch`, so a thrown exception simply propagates and the event never raises. The event is a consequence of the operation having succeeded, which is why there is no "before" counterpart: an event raised before the work happens claims a domain fact that may not turn out to be one.
 - **`emit` does not publish.** `emit` is also the one member of `IEventEmitter`, one layer up, where it *does* mean "publish onto the bus". The decorator only raises into the entity's own buffer, which leaves through `pullDomainEvents` — same word, different layer, different contract.
-- **`onError`** fires only if the method body throws — it wraps the call in a `try`/`catch`, raises the event, then **always re-throws the original error**. It never swallows the failure; the event is a side channel only. A different `onError` from `eventedRegistry`'s own (see [Evented Registry](#evented-registry)), which isolates a throwing *reaction* by swallowing it — this one wraps an `Entity` method and never swallows.
+- **`onError`** fires only if the method body throws — it wraps the call in a `try`/`catch`, raises the event, then **always re-throws the original error**. It never swallows the failure; the event is a side channel only. A different `onError` from a registry's own (see [Commands](#commands)), which isolates a throwing *reaction* by swallowing it — this one wraps an `Entity` method and never swallows.
 - **`onError` accepts either a bare class (`@onError(SomeEvent)`, the same payload-less form the other four decorators take) or a factory (`@onError((error) => ...)`, for an event that folds the caught error into its own payload).** A bare class is normalized internally through `fromClass` — exported on its own for the times that factory value is needed detached from the decorator call. Reach for the factory only when the event actually needs the error.
 - **`emit` and `onError` on the same method are mutually exclusive per call**, by construction: a clean run reaches only `emit`'s raise, a throw reaches only `onError`'s. Two stacked `emit`s both fire, the one written closest to the method first — TC39 applies method decorators bottom-up, so it wraps innermost.
 - Neither `await`s a returned `Promise` — an `async` method's `emit`/`onError` react once the synchronous call returns (or synchronously throws), not once the promise settles or rejects.
@@ -1204,16 +1218,16 @@ class CreateUserCommand extends aggregateCommandOf<typeof createUserProperties, 
 
 ---
 
-## Command Registry
+## Commands
 
-`commandRegistry` gates access to a set of `Command` subclasses by their declared dependencies — entirely at compile time. Declare the spec, then supply the dependency record once; every registrable key is a function on the registry, already bound to it.
+`commands` gates access to a set of `Command` subclasses by their declared dependencies — entirely at compile time. Declare the spec, then supply the dependency record once; every registrable key is a function on the registry, already bound to it. Give it an emitter and the same registry also publishes what those commands raise and runs the reactions registered with `.on()` — [one function, two depths](#publishing-events-and-reacting).
 
 ```typescript
-import { commandRegistry } from "@roastery/beans/application/command-registry";
+import { commands } from "@roastery/beans/application/commands";
 
 type Deps = { secrets: SecretsService; users: UserRepository };
 
-const registry = commandRegistry({
+const registry = commands({
   createUser: CreateUserCommand,   // needs `secrets` and `users`
   renameTag: RenameTagCommand,     // Deps = void — needs nothing
 }).withDependencies({ secrets, users });
@@ -1231,15 +1245,15 @@ Key rules:
 - **`registry.<key>(payload)` returns a ready-to-run bound function, not the class and not an unexecuted instance.** It constructs `CreateUserCommand` with `payload` and immediately calls `.execute(dependencies)` on it, using the record `withDependencies` was given — resolving to the same `CommandResult<Result>` `execute()` itself returns.
 - **`.get(key)` is the same function, reached the long way** — `registry.get("createUser")` and `registry.createUser` are one and the same value. Keep it for a key held in a variable, or a key whose name is not a valid identifier; reach for the direct form everywhere else.
 - **The accessors are gated by exactly the rule `.get()` is gated by.** A key whose `Deps` the supplied record doesn't satisfy is simply absent from the registry's type, so `registry.plantBean` is a compile error rather than a runtime surprise. The **runtime** installs one property per spec key regardless, since registrability has no runtime footprint to read — the same compile-time-only posture the next rule states.
-- **A spec key colliding with a member the registry already carries (`get`; also `on`, for `eventedRegistry`) throws `PropertyNameCollisionException`** from `withDependencies`, before any accessor is installed. Rename the key, or drop to `.get("get")`.
+- **A spec key colliding with a member the registry already carries (`get`; also `on`, once an emitter was supplied) throws `PropertyNameCollisionException`** from `withDependencies`, before any accessor is installed. Rename the key, or drop to `.get("get")`. Without an emitter there is no `.on()` at all, so a key *called* `on` is only a collision for the evented form.
 - **The "only registrable if its dependencies are present" rule is compile-time only.** A key whose command's `Deps` the supplied dependency record doesn't structurally satisfy is a type error on `.get()`, never a runtime check — `Command` itself gains no new member, symbol, or slot for this. Nothing stops a caller who bypasses TypeScript.
 - **A command declaring `Deps = void` is always registrable**, no matter what the dependency record contains — it reads nothing from `execute`'s argument.
 - **An unknown key at runtime throws `InvalidPropertyException`** — the same exception `Command.get()` already reuses for its own "key the blueprint never declared" guard.
-- **This is not a DI container.** `commandRegistry` doesn't resolve, construct, or scope anything — the dependency record is whatever plain object you already built, passed through unchanged to every command's `execute()`. It only decides which commands are reachable through `.get()`.
+- **This is not a DI container.** `commands` doesn't resolve, construct, or scope anything — the dependency record is whatever plain object you already built, passed through unchanged to every command's `execute()`. It only decides which commands are reachable through `.get()`.
 - **The gate is structural, not exact.** A dependency record whose nested methods are merely *bivariantly* compatible with what a command's `Deps` declares (TypeScript's own carve-out for method-shorthand members) can satisfy the check without truly being a safe substitute — the same limitation `Command`'s own `execute` already lives with.
 - **A runtime guard backs the compile-time gate.** The compile-time proof above still caps at one hop, but composition itself has no depth limit at runtime — a chain that calls back into a command key already on its own call chain (`A → commands.B → commands.A`, at any depth, including a caller who bypasses the gate above) throws `LoopDetectedException` (HTTP 508) instead of recursing until the call stack overflows.
 
-- **A command names its siblings by class, and the `commands` bag types itself.** Both registries have always *injected* that bag; declaring it used to mean writing `commands: { login: CommandRunner<typeof LoginCommand> }` into `Deps` by hand. Pass the sibling classes as the factory's fourth type argument instead:
+- **A command names its siblings by class, and the `commands` bag types itself.** The registry has always *injected* that bag; declaring it used to mean writing `commands: { login: CommandRunner<typeof LoginCommand> }` into `Deps` by hand. Pass the sibling classes as the factory's fourth type argument instead:
 
 ```typescript
 import { defineUseCase } from "@roastery/beans/way";
@@ -1262,15 +1276,15 @@ class UpdateUser extends defineUseCase<typeof updateUserProperties, Deps, User, 
 
   `commandOf` and `aggregateCommandOf` take the same fourth parameter, and both `defineEventHandler` overloads take it third — a reaction needing only the bag passes `unknown` in the `Deps` slot first (`defineEventHandler<OrderConfirmed, unknown, Siblings>`), since `unknown & { commands: … }` reduces to the bag alone. Omit it entirely and `Deps` is left exactly as written, which is what keeps every existing command unaffected. It changes nothing at runtime and nothing about the gate: a use case reachable only *through* another sibling's `commands` is still not provably safe, and `.get()` still withholds it.
 
----
+### Publishing events and reacting
 
-## Evented Registry
+Pass `{ emitter }` and the same registry gains event behaviour: every event a registered command's `CommandResult` carries is published through that `IEventEmitter`, and reactions registered via `.on(eventClass, handlerClass)` run — `await`ed, isolated from one another and from the command call that raised the event — before that call resolves. It's the sanctioned place to react to a domain event by running another command (`OrderConfirmed` → `SendReceiptCommand`), without wiring that by hand at every call site.
 
-`eventedRegistry` is `commandRegistry`, gaining event behaviour: every event a registered command's `CommandResult` carries is automatically published through an `IEventEmitter`, and reactions registered via `.on(eventClass, handlerClass)` run — `await`ed, isolated from one another and from the command call that raised the event — before that call resolves. It's the sanctioned place to react to a domain event by running another command (`OrderConfirmed` → `SendReceiptCommand`), without wiring that by hand at every call site.
+Nothing else moves: the same spec, the same dependency record, the same `defineUseCase` classes. `emitter` is required *inside* `options` on purpose — that is what separates the two overloads, and it makes `commands(spec, { onError })` (isolation for reactions that could never be registered) a compile error rather than a registry that quietly has no `.on()`.
 
 ```typescript
-import { eventedRegistry } from "@roastery/beans/application/evented-registry";
-import type { IEventHandler } from "@roastery/beans/application/evented-registry/types";
+import { commands } from "@roastery/beans/application/commands";
+import type { IEventHandler } from "@roastery/beans/application/commands/types";
 
 // The sibling bag, derived from the class rather than spelled out in
 // `CommandRunner<…>` terms — see "A command names its siblings by class" above.
@@ -1282,9 +1296,9 @@ class SendReceiptOnOrderConfirmed implements IEventHandler<OrderConfirmed, SendR
   }
 }
 
-const registry = eventedRegistry(
+const registry = commands(
   { confirmOrder: ConfirmOrderCommand, sendReceipt: SendReceiptCommand },
-  emitter, // an IEventEmitter — see below
+  { emitter }, // an IEventEmitter — see below
 )
   .withDependencies({ mailer })
   .on(OrderConfirmed, SendReceiptOnOrderConfirmed);
@@ -1301,7 +1315,7 @@ interface IEventEmitter {
 }
 ```
 
-Adapting a bus to it is one method, with no subscription logic — `eventedRegistry` never delegates `.on()` to the emitter (see below). For Node's own `EventEmitter` you don't even write that one: `NodeEventEmitterAdapter` ships, and its `inner` emitter is public, which is how you subscribe.
+Adapting a bus to it is one method, with no subscription logic — a registry never delegates `.on()` to the emitter (see below). For Node's own `EventEmitter` you don't even write that one: `NodeEventEmitterAdapter` ships, and its `inner` emitter is public, which is how you subscribe.
 
 ```typescript
 import { NodeEventEmitterAdapter } from "@roastery/beans/node";
@@ -1310,7 +1324,7 @@ const emitter = new NodeEventEmitterAdapter(); // or pass a bus you already own
 
 emitter.inner.on("order.confirmed", (event) => console.log(event.aggregateId));
 
-const registry = eventedRegistry(spec, emitter).withDependencies(deps);
+const registry = commands(spec, { emitter }).withDependencies(deps);
 ```
 
 It lives under `node` — its own subpath — to keep every `node:*` import out of the two layers, so `domain`/`application` stay usable from a worker or an edge function. It is production code, not a test helper: an app whose host *is* Node publishes through it. It also special-cases one name: Node **throws** `ERR_UNHANDLED_ERROR` when `"error"` is emitted with no listener, which would reject the `CommandResult` of a command that actually succeeded, so the adapter skips that call instead (with zero listeners an emit is already a no-op, so nothing is lost). Any other bus is still your own three lines:
@@ -1328,16 +1342,16 @@ Key rules:
 
 - **Matching is by `name`, never `instanceof`.** `Entity.raiseEvent` spreads a raised event into a fresh plain object before buffering it, so what reaches `CommandResult.events` is never `instanceof` the class it was built from — only structurally identical to it. `.on(eventClass, handlerClass)` resolves `eventClass`'s `name` once, at registration time, by reading `defineName()` off an `Object.create(eventClass.prototype)` probe — the same construction-free pattern `Entity.fromJSON` uses to read a blueprint — which is also why a handler class's `handle()` can declare a construct signature-free event parameter (`OrderConfirmed(aggregateId, total)`, with extra payload) that `raiseEvent`'s own bare-class form could never build.
 - **A reaction is a class, not a function** — `IEventHandler<Event, Deps>`, one method (`handle`), constructed fresh (`new HandlerClass()`) per matching event. Deliberately an interface, not an abstract base like `Command`: there's no blueprint to validate, so there's nothing to centralize.
-- **`deps.commands` is a sibling bag, exactly like a `Command`'s own.** A handler reaches other commands the same way a sibling `Command` does — `deps.commands.sendReceipt(payload)` — gated at compile time the same way: only a handler class whose declared `Deps` the registry's dependencies (plus that one-hop `commands` bag) structurally satisfy is accepted by `.on()`. Since that call runs through the very same decorated runner `.get()` uses, whatever `sendReceipt` itself raises is, in turn, auto-published and auto-reacted-to — reactions compose.
-- **A throwing handler is isolated** — it never breaks a sibling reaction on the same event, nor the `CommandResult` of the command that raised it. Failures surface through the optional `onError` hook (`eventedRegistry(spec, emitter, { onError })`); omit it and a failure still never crashes anything — it re-throws inside a microtask instead, visible as an unhandled exception through whatever the host runtime already does with those.
-- **Cycles are detected at runtime, not at compile time.** A reaction whose triggered command raises the same event again — directly, or through further reactions — throws `LoopDetectedException` (HTTP 508) instead of recursing until the call stack gives out, the same runtime guard `commandRegistry`'s own sibling composition now has (TypeScript still can't prove a fixpoint of arbitrary depth, so this is a runtime backstop, not a stronger compile-time gate). When the cycle closes on an *event* specifically, the failure is isolated exactly like any other reaction error — routed through `onError`/`defaultOnError`, never rejecting the `CommandResult` of the command that raised the event.
-- **`eventedRegistry` delegates command construction and execution entirely to `commandRegistry`** — reuse, not reimplementation. It builds a second, parallel `commands` bag on top, shared by `.get()` and every reaction's `deps.commands`.
+- **`deps.commands` is a sibling bag, exactly like a `Command`'s own.** A handler reaches other commands the same way a sibling `Command` does — `deps.commands.sendReceipt(payload)` — gated at compile time the same way: only a handler class whose declared `Deps` the registry's dependencies (plus that one-hop `commands` bag) structurally satisfy is accepted by `.on()`. There is exactly one bag, and `.get()`, the direct accessors, a command's own `deps.commands` and a reaction's all hand back the same runners — so whatever `sendReceipt` itself raises is, in turn, published and reacted to, whether it was dispatched from a reaction or from inside another command. Reactions and commands compose the same way.
+- **A throwing handler is isolated** — it never breaks a sibling reaction on the same event, nor the `CommandResult` of the command that raised it. Failures surface through the optional `onError` hook (`commands(spec, { emitter, onError })`); omit it and a failure still never crashes anything — it re-throws inside a microtask instead, visible as an unhandled exception through whatever the host runtime already does with those.
+- **Cycles are detected at runtime, not at compile time.** A reaction whose triggered command raises the same event again — directly, or through further reactions — throws `LoopDetectedException` (HTTP 508) instead of recursing until the call stack gives out, the same runtime guard sibling composition itself has (TypeScript still can't prove a fixpoint of arbitrary depth, so this is a runtime backstop, not a stronger compile-time gate). When the cycle closes on an *event* specifically, the failure is isolated exactly like any other reaction error — routed through `onError`/`defaultOnError`, never rejecting the `CommandResult` of the command that raised the event.
+- **One registry, one bag of runners.** `.get()`, the direct accessors, a command's `deps.commands` and a reaction's are all the same functions — so a command dispatched from inside another command publishes and reacts exactly as one dispatched from outside.
 - **`IEventHandler<Event, Deps>`'s `Event` is an instance type, not a class reference** — easy to get backwards for a `defineDomainEvent`-generated event, since the only thing in scope to name is the generated class itself: `const BeanPlanted = defineDomainEvent(...)` gives you a value whose natural type reference, `typeof BeanPlanted`, is the **class** shape (`DomainEventClassOf`), not the event. `IEventHandler<typeof BeanPlanted, Deps>` fails with `TS2344: Type 'DomainEventClassOf' does not satisfy the constraint 'DomainEvent'` — reach for `IEventHandler<InstanceType<typeof BeanPlanted>, Deps>` instead. A hand-written `class OrderConfirmed extends DomainEvent { ... }` doesn't have this trap — the class name already **is** the instance type, so `IEventHandler<OrderConfirmed, Deps>` is correct as written. This trap is specific to implementing `IEventHandler` by hand; `defineEventHandler` below sidesteps it entirely.
 
-`eventedRegistry` also accepts a handler generated from just its `handle` function — `defineEventHandler(handle, name?)` builds the same class `implements IEventHandler<Event, Deps>` above, from one function. It has **two overloads**: pass the event's class directly (`typeof BeanPlanted`) and `defineEventHandler` computes `InstanceType<...>` for you — no `InstanceType<...>` boilerplate, and the trap above doesn't apply — or pass an already-known instance type (`OrderConfirmed`, or let it infer from `handle`'s own parameter annotation), exactly as before:
+`.on()` also accepts a handler generated from just its `handle` function — `defineEventHandler(handle, name?)` builds the same class `implements IEventHandler<Event, Deps>` above, from one function. It has **two overloads**: pass the event's class directly (`typeof BeanPlanted`) and `defineEventHandler` computes `InstanceType<...>` for you — no `InstanceType<...>` boilerplate, and the trap above doesn't apply — or pass an already-known instance type (`OrderConfirmed`, or let it infer from `handle`'s own parameter annotation), exactly as before:
 
 ```typescript
-import { defineEventHandler, eventedRegistry } from "@roastery/beans/application/evented-registry";
+import { commands, defineEventHandler } from "@roastery/beans/application/commands";
 
 // Class reference — recommended for a defineDomainEvent-generated event
 const LogBeanPlanted = defineEventHandler<typeof BeanPlanted>(async (event) => {
@@ -1351,14 +1365,81 @@ const SendReceiptOnOrderConfirmed = defineEventHandler<OrderConfirmed, SendRecei
   },
 );
 
-const registry = eventedRegistry(spec, emitter)
-  .withDependencies({ commands })
+const registry = commands(spec, { emitter })
+  .withDependencies(deps)
   .on(OrderConfirmed, SendReceiptOnOrderConfirmed); // same as the hand-written class above
 ```
 
 `name` is optional and purely cosmetic (stack traces, tooling) — unlike `defineDomainEvent`'s own `name` argument, nothing here is read at runtime; matching an event to its handler stays keyed off the *event* class's own name, resolved by `.on()` itself.
 
-`Deps` defaults to `unknown`, not `void` — omit it and `handle`'s second parameter both when a reaction reads nothing from its dependencies. `unknown` specifically, not `void`: `.on()`'s compile-time gate checks that what `eventedRegistry` actually has available *extends* what the handler declares it needs, and only `unknown` (the type everything extends) is satisfied unconditionally — `void` would reject every registration, since a real dependency record never extends `void`.
+`Deps` defaults to `unknown`, not `void` — omit it and `handle`'s second parameter both when a reaction reads nothing from its dependencies. `unknown` specifically, not `void`: `.on()`'s compile-time gate checks that what the registry actually has available *extends* what the handler declares it needs, and only `unknown` (the type everything extends) is satisfied unconditionally — `void` would reject every registration, since a real dependency record never extends `void`.
+
+### Transactions
+
+A command scopes one business operation; it does not make that operation atomic. Two writes inside a single `handle()` can leave the first persisted and the second failed. Marking the command with `@transactional` and giving the registry a `transaction` option closes that gap:
+
+```typescript
+import { commands } from "@roastery/beans/application/commands";
+import { transactional } from "@roastery/beans/application/command/decorators";
+import type { ITransactionRunner } from "@roastery/beans/domain/repository/types";
+
+@transactional
+class PlaceOrder extends defineUseCase<typeof placeOrderProperties, Deps, Order>(
+  placeOrderProperties,
+  "place-order",
+) {
+  protected async handle(deps: Deps): Promise<Order> {
+    const order = new Order(this.toJSON());
+    await deps.orders.create(order);    // both writes commit together,
+    await deps.stock.update(reserved);  // or neither does
+    return order;
+  }
+}
+
+const registry = commands(
+  { placeOrder: PlaceOrder, findOrder: FindOrder },
+  { emitter, transaction: (work) => runner.run(work) },
+).withDependencies({ orders, stock });
+
+await registry.placeOrder(payload); // BEGIN … COMMIT, then emit, then reactions
+await registry.findOrder(payload);  // no BEGIN at all — unmarked
+```
+
+The two halves are deliberately separate: `@transactional` declares **who** needs a boundary, `transaction` supplies **how** to open one. Neither half knows about the other until the registry puts them together.
+
+| | registry without `transaction` | with `transaction` |
+| --- | --- | --- |
+| undecorated command | runs directly | runs directly |
+| `@transactional` command | runs directly (degraded) | runs inside the transaction |
+
+Key rules:
+
+- **`@transactional` wraps nothing.** It stamps `static readonly transactional = true` on the class and stops there — the same declarative posture `meta.unique` has, where the value object never fails construction and the port's adapter is what enforces the constraint. Keeping the boundary out of `Command`/`execute()` is what stops a command from having to receive a runner through a magic `deps.uow` convention: `Deps` has no runtime footprint, so a base class could only ever guess at a name.
+- **A marked command in a registry without a runner is not an error** — it runs exactly as it would unmarked, which is what keeps a test wired with `inMemoryRepositoryOf` free of ceremony. If you want that combination to be loud, `transactionalKeysOf(spec)` reports the marked keys so the check happens at bootstrap: `if (!transaction && transactionalKeysOf(spec).length > 0) throw …`. It mirrors `uniqueKeysOf` one layer down, for the same reason: a declarative marker is only safe while the declaration stays readable.
+- **Only the command's own `execute()` is inside the boundary.** Publication and reactions run after it, so the order is `COMMIT` → `emit` → reactions. An e-mail never rides inside a transaction, and a reaction can never roll back what already committed. Construction is outside too — an invalid payload never opens a boundary it would immediately have to roll back.
+- **A nested command inherits the open boundary instead of opening a second one**, marked or not, so the runner never has to be reentrant and one business operation stays one transaction. A command dispatched by a *reaction* does open its own: by then the original has already committed, and that is exactly the isolation you want.
+- **`transaction` is a function, not the runner object** — `(work) => runner.run(work)`. That keeps `application/` from naming a `domain/repository` type, and lets an adapter of any shape fit. In tests, the boundary that changes nothing is one line — `{ transaction: (work) => work() }` — and the one that actually rolls back is [`inMemoryTransactionOf`](#rolling-a-test-back).
+- **It is available without an emitter.** `commands(spec, { transaction })` is still the events-free registry — no `.on()`, and a spec key called `on` stays installable. Publishing and atomicity are orthogonal, and each arrives when its own problem does. `transaction` is required *inside* `options` the same way `emitter` is on the other overload, so `commands(spec, {})` is a compile error: an empty options object is `commands(spec)` written the long way, and accepting it would make the editor's completion list show that overload's keys **only** — TypeScript computes completions from the overload that matches. Matching neither is what makes opening the brace offer `emitter`, `onError` and `transaction` together. A caller whose boundary only sometimes exists branches at the call site: `transaction ? commands(spec, { transaction }) : commands(spec)`.
+- **`beans` still ships no adapter, and this is not a Unit of Work.** `ITransactionRunner` is the whole contract; the implementation is yours. It is deliberately **not** called `IUnitOfWork`: there is no change tracking and no identity map, so `user.rename("x")` inside a `handle` is *not* saved by the commit — you still call `repo.update(user)`. The name would invite exactly the bug `inMemoryRepositoryOf` exists to catch.
+- **Repositories only join the transaction if your adapter makes them.** The contract hands the runner a callback and nothing else; it cannot thread a connection into the repositories that callback happens to call. On Node that plumbing is `AsyncLocalStorage`. Skip it and the repository writes through the global connection, the `ROLLBACK` never reaches the `INSERT`, and inconsistent state ships with a false sense of protection:
+
+```typescript
+const transactionContext = new AsyncLocalStorage<Prisma.TransactionClient>();
+
+class PrismaTransactionRunner implements ITransactionRunner {
+  constructor(private readonly prisma: PrismaClient) {}
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    return this.prisma.$transaction((tx) => transactionContext.run(tx, work));
+  }
+}
+
+class PrismaUserRepository {
+  private get db() {
+    return transactionContext.getStore() ?? this.prisma; // inside? use the tx
+  }
+}
+```
+
 
 ---
 
@@ -1516,6 +1597,43 @@ All four throw from `@roastery/terroir/exceptions/infra`, the layer an adapter's
 - **`update` excludes the row it is writing.** Re-saving an entity whose unique value did not change passes; borrowing a sibling row's value does not. No change-tracking needed — it falls out of the exclusion, exactly as it does in a database.
 - **The scan reads the store, not the generated readers.** `inMemoryRepositoryOf(User, ["create"])` has no readers at all and still refuses a duplicate.
 - **The primary key is checked first**, so a duplicate `id` is reported as what it is rather than as a duplicate field.
+
+### Rolling a test back
+
+The no-op boundary above proves the *order* a registry runs things in and nothing else: a row written by a `@transactional` command that then failed is still there afterwards. `inMemoryTransactionOf` is the runner that undoes it — the same `ITransactionRunner` port a Prisma adapter implements, over the stores behind the doubles you hand it:
+
+```typescript
+import { inMemoryRepositoryOf, inMemoryTransactionOf } from "@roastery/beans/testing";
+
+const orders = inMemoryRepositoryOf(Order);
+const stock = inMemoryRepositoryOf(StockItem);
+const runner = inMemoryTransactionOf(orders, stock);
+
+const registry = commands(
+  { placeOrder: PlaceOrder }, // @transactional, and it throws after reserving stock
+  { emitter, transaction: (work) => runner.run(work) },
+).withDependencies({ orders, stock });
+
+await expect(registry.placeOrder(payload)).rejects.toThrow();
+
+expect(await orders.count()).toBe(0); // rolled back
+expect(await stock.count()).toBe(0);  // both of them
+expect(emitter.emitted).toHaveLength(0); // and nothing was published
+```
+
+Key rules:
+
+- **It rolls back rows, never entities.** There is no change tracking here either: an aggregate you mutated inside a `handle` keeps its new values after a rollback, because only `repository.update(entity)` ever wrote anything. Undoing that would hide the very bug the double exists to catch.
+- **Scope is explicit.** A double left out of the argument list is not restored. Calling it with no repository at all — or with an object `inMemoryRepositoryOf` did not build — throws `DependencyNotWiredException`, because a runner that silently restores nothing is a wiring bug, not a no-op.
+- **A nested `run` joins the open transaction** rather than opening a second one, so only the outermost call commits or restores. `commands` already opens a boundary only at the outermost marked command; this makes a hand-written nested `run` agree with it.
+- **The error propagates untouched.** It is never wrapped, which is what stops `commands` before the publication loop — the reason a rolled-back operation emits nothing is something you can now assert rather than take on faith.
+- **Reads inside the transaction see its own writes**, and nothing models isolation between concurrent connections. Third documented infidelity of the pillar, alongside UTF-16 string ordering and base64-ordered binary keys.
+
+There is a runnable walk-through of all of it — commit, rollback, the unmarked control, and the entity a rollback deliberately leaves alone — in `examples/testing-transaction.ts`:
+
+```bash
+bun examples/testing-transaction.ts
+```
 
 ---
 
@@ -1722,7 +1840,7 @@ import { configureRedaction, redactionConfig } from "@roastery/beans";
 import type { IRedactionConfig, RedactionPlaceholder, RedactionPlaceholderFn } from "@roastery/beans";
 
 // Application layer's own root barrel — AggregateCommand isn't reachable from the package root above
-import { AggregateCommand, Command as ApplicationCommand, commandRegistry } from "@roastery/beans/application";
+import { AggregateCommand, Command as ApplicationCommand, commands, defineEventHandler } from "@roastery/beans/application";
 
 // Symbols keying the bases' internal slots — from terroir, not from beans
 import { Context, Demo, Events, Meta, Properties, Rules, Source, Storage } from "@roastery/terroir/symbols";
@@ -1730,7 +1848,7 @@ import { Context, Demo, Events, Meta, Properties, Rules, Source, Storage } from 
 // The Roastery Way: one import path for the low-ceremony subset of everything below
 import {
   blueprint as wayBlueprint, entityOf, recordOf as wayRecordOf, defineDomainEvent, defineUseCase,
-  defineEventHandler, commandRegistry as wayCommandRegistry, eventedRegistry,
+  defineEventHandler as wayDefineEventHandler, commands as wayCommands,
   arrayOf as wayArrayOf, optionalOf as wayOptionalOf, nullableOf as wayNullableOf,
 } from "@roastery/beans/way";
 import type { IEventEmitter as WayIEventEmitter, RepositoryOf as WayRepositoryOf } from "@roastery/beans/way";
@@ -1892,37 +2010,35 @@ import type {
   CommandDefinition,
   AnyCommandClass,
   CommandPropertiesShapeBase,
-  CommandRegistrySpecBase,
   CommandResult,
   CommandRunner,
+  CommandsSpecBase,
   ICommand,
   RawCommandContextOf,
   SerializedCommand,
   WithSiblingCommands,
 } from "@roastery/beans/application/command/types";
 
-// CommandRegistry subpaths
-import { commandRegistry } from "@roastery/beans/application/command-registry";
+// Commands subpaths
+import { commands, defineEventHandler } from "@roastery/beans/application/commands";
 import type {
-  AnyCommandClass,        // re-exported — these three now live in application/command/types
-  CommandRegistryBuilder,
-  CommandRegistrySpecBase,
+  AnyCommandClass,        // re-exported — these three live in application/command/types
   CommandRunner,
-  ICommandRegistry,
-} from "@roastery/beans/application/command-registry/types";
-
-// EventedRegistry subpaths
-import { defineEventHandler, eventedRegistry } from "@roastery/beans/application/evented-registry";
-import type {
-  EventedRegistryBuilder,
-  EventedRegistryOptions,
+  CommandRunnersOf,
+  CommandsBuilder,
+  CommandsOf,
+  CommandsSpecBase,
+  EventedCommandsBuilder,
+  EventedCommandsOf,
+  EventedCommandsOptions,
   EventHandlerClassOf,
   EventReactionErrorContext,
   EventReactionErrorHandler,
-  IEventedRegistry,
+  ICommands,
+  IEventedCommands,
   IEventEmitter,
   IEventHandler,
-} from "@roastery/beans/application/evented-registry/types";
+} from "@roastery/beans/application/commands/types";
 
 // Command's alias onto the domain collections catalog — same names, same classes
 import { EmailVO, UuidVO } from "@roastery/beans/application/collections/value-objects";
@@ -1941,9 +2057,11 @@ import type { ValueObjectClassOf as ApplicationValueObjectClassOf } from "@roast
 
 Every item here is a consequence of a choice stated elsewhere in this README. They are collected in one place because that is where they are useful — spread across the section that introduced each one, they are only findable by someone who already knows what to look for.
 
-- **Events are published before anything is committed.** `eventedRegistry` publishes a `CommandResult`'s events as soon as the command resolves. There is no Unit of Work, so a use case writing two aggregates can have the first persisted, its event published, and the second write then fail — leaving a published event describing a state that was rolled back. Today the way to avoid it is to keep a command's writes to a single aggregate, which is what `AggregateCommand` already nudges towards. A transaction boundary, and publishing after it, is the shape that fixes this properly, and it is deliberately not in 0.4.0: it would require an opinion about scope and propagation that would reach into every command's `Deps`.
+- **Atomicity is opt-in, and unmarked commands have none.** A registry given an `emitter` publishes a `CommandResult`'s events as soon as the command resolves. For a command marked [`@transactional`](#transactions) in a registry with a `transaction` option that is safe — the commit happens first — but for every other command it is not: a use case writing two aggregates can still have the first persisted, its event published, and the second write then fail, leaving a published event describing a state that was rolled back. Mark the command, or keep its writes to a single aggregate, which is what `AggregateCommand` already nudges towards.
 
-- **The dependency gate is structural, not exact.** `execute` is written as method shorthand (matching `ICommand`), and TypeScript exempts method shorthand from `strictFunctionTypes`' contravariant parameter checking. A dependency record whose nested method-shaped member is only *bivariantly* compatible with what a command declares will satisfy `RegistrableKeys` without being a safe substitute. Not fixable from inside `commandRegistry` without changing `Command`/`ICommand` themselves.
+- **Commit and publish are still two steps.** Even inside a boundary, the events go out *after* the commit rather than as part of it, so a process that dies in between loses them. The fix is an outbox — writing the events as rows in the same transaction and relaying them separately — which fits in a `CommandResult` without changing anything in `beans`, and is deliberately out of scope here.
+
+- **The dependency gate is structural, not exact.** `execute` is written as method shorthand (matching `ICommand`), and TypeScript exempts method shorthand from `strictFunctionTypes`' contravariant parameter checking. A dependency record whose nested method-shaped member is only *bivariantly* compatible with what a command declares will satisfy `RegistrableKeys` without being a safe substitute. Not fixable from inside `commands` without changing `Command`/`ICommand` themselves.
 
 - **Sibling composition is proven one hop deep.** `deps.commands` lets a command call another, and the type only proves the first hop's dependencies are satisfied — there is no fixpoint proof at arbitrary depth. The runtime is unbounded, with `LoopDetectedException` (508) as the backstop when a chain revisits a key or an event name already on it. The same one-hop limit applies to `.on()`'s `RegistrableEventHandlerClass`.
 

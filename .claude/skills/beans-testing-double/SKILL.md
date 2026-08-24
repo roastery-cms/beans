@@ -20,6 +20,15 @@ const readonlyUsers = inMemoryRepositoryOf(User, ["findById"]); // exactly one m
 const flaky = inMemoryRepositoryOf(User, [], { create: … });    // [] to reach the third argument
 ```
 
+`inMemoryTransactionOf(...repositories)` is the pillar's second double, over the same stores: it
+implements **`ITransactionRunner`**, the port an adapter implements, so a `transactional` command can
+be tested for what a rollback undoes rather than only for the order the boundary closes in.
+
+```ts
+const runner = inMemoryTransactionOf(users, orders);
+commands(spec, { transaction: (work) => runner.run(work) }).withDependencies({ users, orders });
+```
+
 ## Inviolable rules
 
 1. **The double must stay faithful, not convenient.** It stores `toJSON()` and rehydrates through
@@ -40,6 +49,19 @@ const flaky = inMemoryRepositoryOf(User, [], { create: … });    // [] to reach
    guard in `in-memory-repository-of.spec.ts` (`as const satisfies` one way, an `Equal` assertion the
    other) must keep passing. This is the one place in the package where a rule exists twice.
 8. **`src/testing/` imports no Node builtin** and `helpers/` has no `index.ts`.
+9. **The runner rolls back rows, never entities.** No change tracking here either — an aggregate
+   mutated inside a `handle` keeps its new values, exactly as a missing `update()` leaves the store
+   untouched. Undoing it would hide the bug rule 1 exists to expose.
+10. **The rejection propagates untouched**, never wrapped: it is what stops `commands` before the
+    publication loop, which is how "a rolled-back operation publishes nothing" gets tested.
+11. **The runner reaches `rows` through `helpers/row-stores.ts`, a module-level `WeakMap`** — never
+    through a member on the repository object, which must keep exactly the methods its spec named.
+12. **A nested `run` joins the open transaction** (depth counter); only the outermost call snapshots
+    and restores. The snapshot is a `structuredClone`, so an in-place mutation through a handler's
+    `context.rows` is undone too.
+13. **Wiring fails loudly**: no repository, or an object `inMemoryRepositoryOf` did not build,
+    throws `DependencyNotWiredException`. Both doubles share `helpers/repository-source.ts` for the
+    `source` slot.
 
 ## Arguments and the spec
 
@@ -82,14 +104,18 @@ guarantees one primitive per key, so `a < b` never compares a string against a n
 (SQL's `NULLS LAST`); the caller inverting the whole comparison for `"desc"` is what puts it first there,
 matching `ORDER BY x DESC`.
 
-Infidelities, both deliberate: string order is JS's UTF-16 code-unit order, not a collation's, and a
-`customBinaryVO` key is base64 — orderable and meaningless.
+Infidelities, all three deliberate: string order is JS's UTF-16 code-unit order, not a collation's, a
+`customBinaryVO` key is base64 — orderable and meaningless — and the transaction runner models no
+isolation between concurrent connections (reads see the open transaction's own writes).
 
 ## Expect these in tests
 
 - Mutating after `create` does **not** persist; only `update()` does. That catches the "forgot to call
   update" bug rather than hiding it.
 - `toBe` will not hold across a read, and `[Events]`/`[Storage]` come back empty.
+- A rollback restores rows only: `entity.name` keeps the value it was given, while `findById` returns
+  the old one. Assert both — that pair *is* the "no change tracking" contract.
+- A repository left out of `inMemoryTransactionOf`'s arguments is not rolled back. Scope is explicit.
 
 > Detail: [in-memory-double-fidelity.md](../../../docs/decisions/in-memory-double-fidelity.md)
 > · the port itself: skill `beans-repository-port`

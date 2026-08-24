@@ -1,4 +1,4 @@
-import type { CommandRegistrySpecBase } from "./command-registry-spec-base.type";
+import type { CommandsSpecBase } from "./commands-spec-base.type";
 import type { CommandRunner } from "./command-runner.type";
 
 /**
@@ -6,11 +6,10 @@ import type { CommandRunner } from "./command-runner.type";
  * built from the `Siblings` map it named — the type-level half of something
  * the runtime has always done unconditionally.
  *
- * `commandRegistry` and `eventedRegistry` both already hand every command
- * (and every reaction) a `commands` bag alongside its dependency record —
- * see `buildCommands` in `command-registry.ts` and its twin in
- * `evented-registry.ts`. Until this type existed, the only way to *see* that
- * bag was to write it into `Deps` by hand:
+ * `commands` already hands every command (and every reaction) a `commands`
+ * bag alongside its dependency record — see `buildCommands` in
+ * `commands.ts`. Until this type existed, the only way to *see* that bag was
+ * to write it into `Deps` by hand:
  *
  * ```ts
  * type Deps = { users: UserRepo; commands: { login: CommandRunner<typeof LoginCommand> } };
@@ -55,14 +54,13 @@ import type { CommandRunner } from "./command-runner.type";
  *   default at every call site, which resolves to `Deps` untouched.
  *
  * @see `defineUseCase` in `@/application/command/helpers/define-use-case` — the primary consumer.
- * @see `defineEventHandler` in `@/application/evented-registry` — the reaction-side consumer.
- * @see `SiblingCommands` in `@/application/command-registry/types` — the registry's own,
+ * @see `defineEventHandler` in `@/application/commands` — the reaction-side consumer.
+ * @see `SiblingCommands` in `@/application/commands/types` — the registry's own,
  *   spec-wide counterpart, which computes its keys instead of being given them.
  */
-export type WithSiblingCommands<
-	Deps,
-	Siblings extends CommandRegistrySpecBase,
-> = [keyof Siblings] extends [never]
+export type WithSiblingCommands<Deps, Siblings extends CommandsSpecBase> = [
+	keyof Siblings,
+] extends [never]
 	? Deps
 	: Deps & {
 			readonly commands: {

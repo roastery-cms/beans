@@ -22,16 +22,10 @@ import { capitalizeKey } from "./helpers/capitalize-key";
 import { compareRaw } from "./helpers/compare-raw";
 import { filterKeysOf } from "./helpers/filter-keys-of";
 import { repositoryCatalogOf } from "./helpers/repository-catalog-of";
+import { REPOSITORY_SOURCE } from "./helpers/repository-source";
 import { resolveSpecNames } from "./helpers/resolve-spec-names";
+import { rowStores } from "./helpers/row-stores";
 import { uniqueConflictOf } from "./helpers/unique-conflict-of";
-
-/**
- * The `source` every exception this double raises carries — the identifier of
- * the *datastore*, which is what terroir's infra exceptions ask for, and the
- * same string `resolveSpecNames` already uses. Which entity, key and value were
- * involved goes in the message.
- */
-const REPOSITORY_SOURCE = "in-memory-repository";
 
 /** One stored record: exactly what `toJSON()` produced, kept loose internally. */
 type Row = Record<string, unknown>;
@@ -330,6 +324,11 @@ export function inMemoryRepositoryOf<
 
 		Object.assign(repository, handler(context));
 	}
+
+	// Registered after the handler ran, so the object recorded is the finished
+	// one — the same reference the caller holds, which is what
+	// `inMemoryTransactionOf` is handed and looks up.
+	rowStores.set(repository, rows);
 
 	return repository as unknown as RepositoryOf<
 		EntityClass,

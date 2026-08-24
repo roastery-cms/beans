@@ -1,15 +1,10 @@
 import { EventEmitter } from "node:events";
-import type { IEventEmitter } from "@/application/evented-registry/types";
+import type { IEventEmitter } from "@/application/commands/types";
 import { StringVO } from "@/domain/collections/value-objects";
 import type { IDomainEvent } from "@/domain/domain-event/types";
 import { onCreate } from "@/domain/entity/decorators";
 import { NodeEventEmitterAdapter } from "@/node";
-import {
-	defineDomainEvent,
-	defineUseCase,
-	entityOf,
-	eventedRegistry,
-} from "@/way";
+import { commands, defineDomainEvent, defineUseCase, entityOf } from "@/way";
 import { describe, expect, it } from "bun:test";
 
 const OrderConfirmed = defineDomainEvent("order.confirmed");
@@ -93,7 +88,7 @@ describe("NodeEventEmitterAdapter", () => {
 		expect(received[0]?.name).toBe("error");
 	});
 
-	it("drops straight into eventedRegistry", async () => {
+	it("drops straight into an evented `commands` registry", async () => {
 		const emitter = new NodeEventEmitterAdapter();
 		const published: string[] = [];
 
@@ -101,9 +96,9 @@ describe("NodeEventEmitterAdapter", () => {
 			published.push(event.aggregateId),
 		);
 
-		const registry = eventedRegistry(
+		const registry = commands(
 			{ confirmOrder: ConfirmOrder },
-			emitter,
+			{ emitter: emitter },
 		).withDependencies({});
 
 		const { result } = await registry.get("confirmOrder")({ reference: "A-1" });

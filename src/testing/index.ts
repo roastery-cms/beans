@@ -24,6 +24,11 @@
  * - {@link inMemoryRepositoryOf} — an in-memory repository for one entity,
  *   generated from its blueprint and typed as the `RepositoryOf` port a real
  *   adapter would implement.
+ * - {@link inMemoryTransactionOf} — a transaction runner over those
+ *   repositories, typed as the `ITransactionRunner` port the same way, so a
+ *   `transactional` command can be tested for what a rollback actually undoes
+ *   rather than only for the order in which the boundary closes.
  */
 
 export { inMemoryRepositoryOf } from "./in-memory-repository-of";
+export { inMemoryTransactionOf } from "./in-memory-transaction-of";

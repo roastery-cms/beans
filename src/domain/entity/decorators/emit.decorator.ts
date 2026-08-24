@@ -25,10 +25,10 @@ import type { EntityMethodDecorator } from "./types/entity-method-decorator.type
  * so this is a documented restriction rather than an observed gap.
  *
  * **This `emit` does not publish.** `emit` also names the one member of
- * `IEventEmitter` (`@roastery/beans/application/evented-registry`), where it
+ * `IEventEmitter` (`@roastery/beans/application/commands`), where it
  * means "publish onto the bus". This decorator does no such thing: it raises
  * into the entity's own `[Events]` buffer, which only ever leaves through
- * `pullDomainEvents`. Whether those events reach a bus is `eventedRegistry`'s
+ * `pullDomainEvents`. Whether those events reach a bus is `commands`'s
  * decision, one layer up. Same word, different layer, different contract —
  * and no ambiguity in the module graph, since each lives behind its own
  * subpath.

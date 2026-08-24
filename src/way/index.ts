@@ -14,7 +14,7 @@
  * has its own behaviour. `way` is a curated barrel that spans both layers,
  * picking only the entries whose whole design goal was already minimizing
  * ceremony (`entityOf`, `defineDomainEvent`, `defineUseCase`,
- * `defineEventHandler`, `commandRegistry`, `eventedRegistry`) over the
+ * `defineEventHandler`, `commands`) over the
  * "precise" class forms that sit right next to them in their own pillars. Reach past this barrel,
  * into the specific subpath, the moment a use case needs more than one
  * aggregate as its result, an entity needs a computed `defineEntity()`, or
@@ -41,22 +41,19 @@
  *   single-aggregate `AggregateCommand`, implementing only `handle()`).
  * - **Reactions** — {@link defineEventHandler} (an event reaction from just
  *   its `handle` function).
- * - **Orchestration** — {@link commandRegistry} (register use cases behind
- *   their dependencies; `.get(key)` hands back a ready-to-run function) and
- *   {@link eventedRegistry} (the same thing, plus auto-publishing every
- *   event a use case raises and running the reactions registered with
- *   `.on()`), together with {@link IEventEmitter} (the contract to adapt an
- *   event bus to, so `eventedRegistry` can publish through it).
+ * - **Orchestration** — {@link commands} (register use cases behind their
+ *   dependencies; `.get(key)`, or the direct accessor, hands back a
+ *   ready-to-run function), together with {@link IEventEmitter} (the
+ *   contract to adapt an event bus to, so `commands` can publish through
+ *   it).
  *
- *   **Both are here on purpose, and `commandRegistry` is the one to start
- *   with.** `eventedRegistry` takes a required `IEventEmitter`, so reaching
- *   for it means deciding where events go before there is anything to
- *   publish — a real step to climb for someone who has not met domain
- *   events yet. `commandRegistry` asks for none of that and is not a
- *   lesser tool: `eventedRegistry` is built *on* it, delegating command
- *   construction and execution to it wholesale. A `CommandResult` still
- *   carries its `events` either way, so nothing is lost by starting here —
- *   moving up later is a change of registry, not of use cases.
+ *   **One function, two depths.** `commands(spec)` asks nothing about
+ *   events: a `CommandResult` still carries whatever an aggregate raised,
+ *   there is simply nowhere for it to be published to, and `.on()` does not
+ *   exist. Pass `{ emitter }` the day an event bus does exist and the very
+ *   same registry publishes every raised event and runs the reactions
+ *   registered with `.on()`. Moving up is one argument — the spec, the
+ *   dependencies and every `defineUseCase` stay exactly as they are.
  * - **Multiplicity** — {@link arrayOf}, {@link optionalOf} and
  *   {@link nullableOf}, which take a blueprint class and return another one
  *   holding many of it, or optionally one, or one-or-`null`. Blueprint
@@ -89,13 +86,12 @@ export { arrayOf, nullableOf, optionalOf } from "@/domain/wrapper/helpers";
 export { defineDomainEvent } from "@/domain/domain-event";
 
 export { defineUseCase } from "@/application/command/helpers";
+export { transactional } from "@/application/command/decorators";
 
-export { commandRegistry } from "@/application/command-registry";
+export { commands, defineEventHandler } from "@/application/commands";
+export type { IEventEmitter } from "@/application/commands/types";
 
-export {
-	defineEventHandler,
-	eventedRegistry,
-} from "@/application/evented-registry";
-export type { IEventEmitter } from "@/application/evented-registry/types";
-
-export type { RepositoryOf } from "@/domain/repository/types";
+export type {
+	ITransactionRunner,
+	RepositoryOf,
+} from "@/domain/repository/types";

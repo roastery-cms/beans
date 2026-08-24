@@ -1,4 +1,4 @@
-import { commandRegistry } from "@/application/command-registry";
+import { commands } from "@/application/commands";
 import type { WithSiblingCommands } from "@/application/command/types";
 import { StringVO } from "@/domain/collections/value-objects";
 import { Entity } from "@/domain/entity";
@@ -52,7 +52,7 @@ describe("defineUseCase", () => {
 
 /**
  * The `Siblings` type argument: the runtime has always injected a `commands`
- * bag (`commandRegistry`'s `buildCommands`), but until it existed the only
+ * bag (`commands`' own `buildCommands`), but until it existed the only
  * way to *see* that bag was to write `commands: { roast: CommandRunner<…> }`
  * into `Deps` by hand. Here the sibling **class** is named instead and the
  * runner is derived, including its payload and result types.
@@ -97,7 +97,7 @@ class HarvestBean extends defineUseCase<
 describe("defineUseCase — Siblings", () => {
 	it("derives a typed commands bag from the sibling classes it names", async () => {
 		const log: string[] = [];
-		const registry = commandRegistry({
+		const registry = commands({
 			harvestBean: HarvestBean,
 			roastBean: RoastBean,
 		}).withDependencies({ log });

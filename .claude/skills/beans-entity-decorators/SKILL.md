@@ -107,7 +107,7 @@ placeholder for `aggregateId`.
 - **`EntityMethodDecorator` takes `<This, Args extends unknown[], Return>`** — `unknown[]`, not `any[]`:
   with no mixin base here, none of the TS2545/TS2515 traps apply. Not re-exported from
   `decorators/types/index.ts`; `EntityErrorEventFactory` and `BareDomainEventClass` are.
-- **`emit` shares its name with `IEventEmitter.emit` and `onError` with `eventedRegistry`'s `onError`.**
+- **`emit` shares its name with `IEventEmitter.emit` and `onError` with the `commands` registry's `onError`.**
   Different layers, different contracts, no ambiguity in the module graph — each lives behind its own
   subpath. Say so in the TSDoc when touching either.
 

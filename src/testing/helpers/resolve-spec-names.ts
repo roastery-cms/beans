@@ -27,8 +27,8 @@ type LooseSpec =
  * read as "everything".
  *
  * A name outside the catalog throws `InvalidPropertyException` — the same
- * exception, and the same `(property, source)` shape, `commandRegistry`
- * already raises for a key its spec never declared. TypeScript rejects such a
+ * exception, and the same `(property, source)` shape, `commands` already
+ * raises for a key its spec never declared. TypeScript rejects such a
  * name first; this is the backstop for a plain-JS caller, and it fires at
  * construction rather than leaving a silently missing method to surface as
  * `undefined is not a function` somewhere in a test.

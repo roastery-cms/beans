@@ -15,7 +15,7 @@ import type { CommandResult } from "./command-result.type";
  * regardless of its actual `Deps`/payload — satisfy this bound, while the
  * real types are recovered afterwards from the concrete class.
  *
- * @see `CommandRegistrySpecBase` — the spec built from a record of these.
+ * @see `CommandsSpecBase` — the spec built from a record of these.
  */
 export type AnyCommandClass = {
 	readonly prototype: {

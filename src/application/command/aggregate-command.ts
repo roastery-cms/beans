@@ -16,7 +16,7 @@ import type { CommandResult } from "./types/command-result.type";
  *
  * `handle` is `protected`, the same visibility `Entity.raiseEvent` uses and
  * for the same reason: `execute()` stays the one public verb a caller (or
- * `commandRegistry`) ever calls, and how it builds its `CommandResult` is an
+ * `commands`) ever calls, and how it builds its `CommandResult` is an
  * implementation detail, not part of the contract.
  *
  * `Result` carries the exact structural bound {@link collectResult} already
@@ -36,8 +36,8 @@ import type { CommandResult } from "./types/command-result.type";
  * `DepsOfClass` as `void` rather than the `unknown` a hand-written
  * `execute()` without a parameter would infer. `RegistrableKeys` already
  * treats both outcomes identically, at either depth — that double branch
- * exists precisely for this — so registration through
- * `commandRegistry`/`eventedRegistry` is unaffected either way.
+ * exists precisely for this — so registration through `commands` is
+ * unaffected either way.
  *
  * @typeParam Shape - The command's blueprint shape: one `ValueObject` class
  *   per input field.

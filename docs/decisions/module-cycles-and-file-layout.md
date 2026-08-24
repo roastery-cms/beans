@@ -71,10 +71,10 @@ subpath.
 
 `domain/index.ts` mirrors that same pairing at the domain layer's own level (`Entity` +
 `DomainRecord` + `ValueObject` + `blueprint` + `DomainEvent`), and `application/index.ts` mirrors it
-at the application layer's (`Command` and `AggregateCommand`, plus `commandRegistry` —
-`AggregateCommand` is reachable here and from `application/command`, but **not** from the root
-barrel, the same "narrower than a base class" reasoning that already keeps `commandRegistry` out of
-the root).
+at the application layer's (`Command` and `AggregateCommand`, plus `commands` and
+`defineEventHandler` — `AggregateCommand` is reachable here and from `application/command`, but
+**not** from the root barrel, the same "narrower than a base class" reasoning that already keeps
+`commands` out of the root).
 
 `blueprint`'s `export` line lives in three places (`domain/entity/helpers/index.ts`, its original
 home; `domain/entity/index.ts`; and the root `index.ts`) despite one-thing-per-file governing

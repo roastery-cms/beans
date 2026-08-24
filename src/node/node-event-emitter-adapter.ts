@@ -1,13 +1,13 @@
 import { EventEmitter } from "node:events";
-import type { IEventEmitter } from "@/application/evented-registry/types";
+import type { IEventEmitter } from "@/application/commands/types";
 import type { IDomainEvent } from "@/domain/domain-event/types";
 
 /**
  * Adapts Node's own `EventEmitter` to the `IEventEmitter` contract
- * `eventedRegistry` publishes through — the whole translation being "forward
+ * `commands` publishes through — the whole translation being "forward
  * the event as the sole listener argument, keyed by its `name`".
  *
- * `beans` implements no event bus, so every `eventedRegistry` call site has to
+ * `beans` implements no event bus, so every `commands` call site has to
  * supply one; this is the boilerplate that was being retyped in every test and
  * every small app that just wants the host runtime's own primitive. Node's
  * `emit(name, ...args): boolean` is a genuinely different shape — synchronous,
@@ -19,7 +19,7 @@ import type { IDomainEvent } from "@/domain/domain-event/types";
  * that subpath is the whole point: this is production code. `domain` and `application` stay
  * runtime-agnostic — nothing in them imports a Node builtin — and an app whose
  * host *is* Node can use this in production perfectly well. What it does not
- * do is subscribe: `eventedRegistry` never dispatches its own reactions
+ * do is subscribe: `commands` never dispatches its own reactions
  * through `IEventEmitter` (it `await`s them through its own registry instead),
  * so an adapter only ever needs `emit`.
  *
@@ -36,7 +36,7 @@ import type { IDomainEvent } from "@/domain/domain-event/types";
  *
  * emitter.inner.on("order.confirmed", (event) => published.push(event.aggregateId));
  *
- * const registry = eventedRegistry(spec, emitter).withDependencies(deps);
+ * const registry = commands(spec, { emitter }).withDependencies(deps);
  * await registry.get("confirmOrder")({ total: 100 });
  *
  * published; // ["01a0…"]
@@ -49,8 +49,8 @@ import type { IDomainEvent } from "@/domain/domain-event/types";
  * const emitter = new NodeEventEmitterAdapter(bus);
  * ```
  *
- * @see `IEventEmitter` in `@roastery/beans/application/evented-registry/types` — the contract this satisfies.
- * @see `eventedRegistry` in `@roastery/beans/application/evented-registry` — the only caller of `emit`.
+ * @see `IEventEmitter` in `@roastery/beans/application/commands/types` — the contract this satisfies.
+ * @see `commands` in `@roastery/beans/application/commands` — the only caller of `emit`.
  */
 export class NodeEventEmitterAdapter implements IEventEmitter {
 	/**
@@ -67,7 +67,7 @@ export class NodeEventEmitterAdapter implements IEventEmitter {
 	 *
 	 * **`"error"` is special-cased, and has to be.** It is Node's one reserved
 	 * channel: emitting it with no listener registered throws
-	 * `ERR_UNHANDLED_ERROR` instead of doing nothing. Since `eventedRegistry`
+	 * `ERR_UNHANDLED_ERROR` instead of doing nothing. Since `commands`
 	 * `await`s this call inside the loop that publishes a command's events,
 	 * that throw would reject the `CommandResult` of a command that actually
 	 * succeeded — a domain event named `error` would break the very operation

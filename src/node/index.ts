@@ -18,7 +18,7 @@
  *
  * Re-exports:
  * - {@link NodeEventEmitterAdapter} — Node's `EventEmitter`, wrapped to
- *   satisfy the `IEventEmitter` contract `eventedRegistry` publishes through.
+ *   satisfy the `IEventEmitter` contract `commands` publishes through.
  */
 
 export { NodeEventEmitterAdapter } from "./node-event-emitter-adapter";

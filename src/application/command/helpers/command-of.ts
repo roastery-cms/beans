@@ -3,7 +3,7 @@ import type {
 	CommandClassOf,
 	CommandDefinition,
 	CommandPropertiesShapeBase,
-	CommandRegistrySpecBase,
+	CommandsSpecBase,
 	WithSiblingCommands,
 } from "@/application/command/types";
 
@@ -63,7 +63,7 @@ export function commandOf<
 	Shape extends CommandPropertiesShapeBase,
 	Deps,
 	Result,
-	Siblings extends CommandRegistrySpecBase = Record<never, never>,
+	Siblings extends CommandsSpecBase = Record<never, never>,
 >(
 	properties: Shape,
 	source: string,

@@ -1,6 +1,6 @@
 ---
 name: beans-command-pillar
-description: Use when writing or editing a use case / command — `Command`, `AggregateCommand`, `commandOf`, `aggregateCommandOf`, `defineUseCase`, `defineCommand()`, `execute()`, `handle()`, `CommandResult`, `collectDomainEvents`, `collectResult`, `CommandAccessorsOf` — anything under `src/application/command/`, or when a command's input validation, exception layer, blueprint shape, redaction or demo/hydration behaviour needs to be decided.
+description: Use when writing or editing a use case / command — `Command`, `AggregateCommand`, `commandOf`, `aggregateCommandOf`, `defineUseCase`, `defineCommand()`, `execute()`, `handle()`, `CommandResult`, `collectDomainEvents`, `collectResult`, `CommandAccessorsOf`, `@transactional` — anything under `src/application/command/`, or when a command's input validation, exception layer, blueprint shape, redaction, transactional boundary or demo/hydration behaviour needs to be decided.
 ---
 
 # The command pillar
@@ -110,7 +110,24 @@ questions stay reachable from inside `execute()`; `toJSON()` reaches a nested re
 - All the class-returning factories annotate their return (`CommandClassOf`, `AggregateCommandClassOf`) —
   TS4060.
 - Both factories pass `WithSiblingCommands<Deps, Siblings>` — not the bare `Deps` — into the bound base;
-  see skill `beans-command-registry`.
+  see skill `beans-commands`.
+
+## `decorators/`
+
+One decorator, and everything the directory ever gains should share its shape: **declarative**. Unlike
+`domain/entity/decorators/`, where all five end in `raiseEvent`, nothing here wraps `execute()` — a
+decorator states a fact about the class and something one layer up reads it.
+
+`transactional` stamps `static readonly transactional = true` and returns nothing; `commands`' own
+`transaction` option is what opens a boundary, and only around `execute()`. Keeping it split is what
+stops a command from having to receive a runner through a magic `deps.uow` name — `Deps` has no runtime
+footprint, so a base class could only guess at one. Same posture as `meta.unique`: the declaration never
+fails on its own, the adapter enforces it, and a reader helper (`transactionalKeysOf`, mirroring
+`uniqueKeysOf`) keeps the declaration inspectable.
+
+The marker is a plain static, read by `decorators/helpers/is-transactional.ts` — never a locally
+declared symbol, and not worth asking terroir for one. See skill `beans-commands` for what the registry
+does with it.
 
 ## Where the machinery lives
 
@@ -122,7 +139,8 @@ circular import. Nothing in a command's construction machinery needs to import `
 `PropertyRule`, `RuledBlueprint` and `BlueprintBuilder` are imported straight from `@/domain/entity`;
 `readDefinition` and the `Command*`-prefixed blueprint types are duplicated on purpose.
 
-> Detail: [exception-layer-split.md](../../../docs/decisions/exception-layer-split.md)
+> Detail: [transactional-boundary.md](../../../docs/decisions/transactional-boundary.md)
+> · [exception-layer-split.md](../../../docs/decisions/exception-layer-split.md)
 > · [redaction-asymmetry.md](../../../docs/decisions/redaction-asymmetry.md)
 > · [module-cycles-and-file-layout.md](../../../docs/decisions/module-cycles-and-file-layout.md)
-> · registries: skill `beans-command-registry` · modeling: skill `beans-domain-modeling`
+> · registries: skill `beans-commands` · modeling: skill `beans-domain-modeling`

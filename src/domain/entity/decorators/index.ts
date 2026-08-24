@@ -25,7 +25,7 @@
  * **`onError` never swallows.** It always re-throws the caught error after
  * raising its event — the decorated method's observable behaviour is
  * unchanged for its caller. This is a different `onError` than the one on
- * `eventedRegistry` (`@roastery/beans/application/evented-registry`), which
+ * `commands` (`@roastery/beans/application/commands`), which
  * isolates a throwing event *reaction* by swallowing it; this one wraps an
  * `Entity` business method and only ever adds a side-channel event.
  *

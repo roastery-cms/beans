@@ -67,6 +67,9 @@ const post = new Post({
 
 const nameOnly = reshapeShape({ name: StringVO });
 
+type A = typeof nameOnly;
+
+
 const postCard = reshapeShape({
 	title: StringVO,
 	author: nameOnly, // source: Author            -> one object
@@ -74,5 +77,3 @@ const postCard = reshapeShape({
 	editor: nameOnly, // source: optionalOf(Author)-> the object or undefined
 	shippedTo: reshapeShape({ city: StringVO, state: StringVO }), // a record: no identity
 });
-
-console.log(reshapeTo(postCard, post));

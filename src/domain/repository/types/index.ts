@@ -28,6 +28,10 @@
  *   {@link ICanUpdate}.
  * - **Whole catalogs** — {@link IEntityReader}, {@link IEntityRepository},
  *   {@link IEntityWriter}.
+ * - **Transactional boundary** — {@link ITransactionRunner}, the contract an
+ *   adapter implements so `commands`' `transaction` option has something to
+ *   open. It is the one entry here not derived from a blueprint: a
+ *   transaction is a property of the operation, not of an entity's shape.
  * - **Projections** — {@link ReaderOf}, {@link WriterOf}.
  * - **Spec vocabulary** — {@link RepositoryGroupedSpecOf},
  *   {@link RepositoryMethodsOf}, {@link RepositoryReadMethodsOf},
@@ -52,6 +56,7 @@ export type { ICanUpdate } from "./ican-update.interface";
 export type { IEntityReader } from "./ientity-reader.type";
 export type { IEntityRepository } from "./ientity-repository.type";
 export type { IEntityWriter } from "./ientity-writer.type";
+export type { ITransactionRunner } from "./itransaction-runner.interface";
 export type { ReaderOf } from "./reader-of.type";
 export type { RepositoryCollectionFilterKeysOf } from "./repository-collection-filter-keys-of.type";
 export type { RepositoryExtraMethodsBase } from "./repository-extra-methods-base.type";

@@ -1,6 +1,6 @@
 ---
 name: beans-domain-events
-description: Use when an entity should raise a domain event, or when working with `raiseEvent` / `pullDomainEvents` / the `[Events]` slot / `IDomainEvent` / `DomainEvent` / `defineName()` / `defineDomainEvent` / `DomainEventClassOf`, when events go missing from a nested entity, record or wrapper, or when deciding where events get published (`collectDomainEvents`, `CommandResult`, `eventedRegistry`).
+description: Use when an entity should raise a domain event, or when working with `raiseEvent` / `pullDomainEvents` / the `[Events]` slot / `IDomainEvent` / `DomainEvent` / `defineName()` / `defineDomainEvent` / `DomainEventClassOf`, when events go missing from a nested entity, record or wrapper, or when deciding where events get published (`collectDomainEvents`, `CommandResult`, `commands`).
 ---
 
 # Domain events
@@ -61,4 +61,4 @@ contract, not entity-specific machinery — even though `Entity` is its only con
 
 
 > Detail: [removed-features.md](../../../docs/decisions/removed-features.md) (no `onRead`/`onHydrate`)
-> · siblings: skills `beans-domain-modeling`, `beans-entity-decorators`, `beans-command-registry`
+> · siblings: skills `beans-domain-modeling`, `beans-entity-decorators`, `beans-commands`

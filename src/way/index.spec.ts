@@ -2,12 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { StringVO } from "./collections/value-objects";
 import {
 	blueprint,
-	commandRegistry,
+	commands,
 	defineDomainEvent,
 	defineEventHandler,
 	defineUseCase,
 	entityOf,
-	eventedRegistry,
 } from "./index";
 import type { IEventEmitter } from "./index";
 
@@ -50,9 +49,9 @@ class NoopEmitter implements IEventEmitter {
 describe("@roastery/beans/way", () => {
 	it("builds a whole feature — domain, event, use case, reaction, orchestration — from one import path", async () => {
 		const log: string[] = [];
-		const registry = eventedRegistry(
+		const registry = commands(
 			{ plantBean: PlantBean },
-			new NoopEmitter(),
+			{ emitter: new NoopEmitter() },
 		)
 			.withDependencies({ log })
 			.on(BeanPlanted, LogBeanPlanted);
@@ -68,14 +67,13 @@ describe("@roastery/beans/way", () => {
 	});
 
 	/**
-	 * The events-free entry point, and the reason it is in this barrel at all:
-	 * `eventedRegistry` requires an `IEventEmitter`, which means deciding where
-	 * events go before there is anything to publish. `commandRegistry` asks for
-	 * none of that, and still hands back the very same `CommandResult` — its
+	 * The shallow end of the same function, and the reason one name covers
+	 * both: omitting `options` means deciding nothing about where events go,
+	 * while the registry still hands back the very same `CommandResult` — its
 	 * `events` included — so nothing is given up by starting here.
 	 */
 	it("orchestrates a use case without an emitter, or any knowledge of events", async () => {
-		const registry = commandRegistry({
+		const registry = commands({
 			plantBean: PlantBean,
 		}).withDependencies({});
 
@@ -90,14 +88,14 @@ describe("@roastery/beans/way", () => {
 		expect(events.map((event) => event.name)).toEqual(["bean.planted"]);
 	});
 
-	it("takes the same spec as eventedRegistry, so moving up is a change of registry only", async () => {
+	it("takes the same spec either way, so moving up is one argument, not a different registry", async () => {
 		const spec = { plantBean: PlantBean };
 
-		const plain = await commandRegistry(spec)
-			.withDependencies({})
-			.get("plantBean")({ name: "Liberica" });
+		const plain = await commands(spec).withDependencies({}).get("plantBean")({
+			name: "Liberica",
+		});
 
-		const evented = await eventedRegistry(spec, new NoopEmitter())
+		const evented = await commands(spec, { emitter: new NoopEmitter() })
 			.withDependencies({ log: [] })
 			.get("plantBean")({ name: "Liberica" });
 

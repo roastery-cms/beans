@@ -15,7 +15,7 @@ ecosystem, split into **two layers**: `domain/` (the blueprint-driven `Entity`, 
 the `collections` catalog) and `application/` (`Command`/`AggregateCommand` plus the two registries).
 Four directories are **not** layers: `shared/` (internals both pillars need verbatim), `way/`
 (re-export-only barrel over the low-ceremony subset), `testing/` (a time-of-use concern —
-`inMemoryRepositoryOf`) and `node/` (a host concern — every `node:*` import in the package). All schema
+`inMemoryRepositoryOf` and `inMemoryTransactionOf`) and `node/` (a host concern — every `node:*` import in the package). All schema
 validation flows through `@roastery/terroir` (a TypeBox-backed schema/exception toolkit), currently on
 **0.2.1**, which also owns the well-known symbols keying the bases' slots.
 
@@ -63,14 +63,17 @@ One line per pillar; the skill named at the end of a line carries that pillar's 
 
 **`src/application/`**
 - `command/` — `Command`, `AggregateCommand`, `commandOf`, `aggregateCommandOf`, `defineUseCase`,
-  `collectDomainEvents`, `collectResult`. Skill `beans-command-pillar`.
-- `command-registry/` — `commandRegistry(spec).withDependencies(deps)`. Skill `beans-command-registry`.
-- `evented-registry/` — the same plus auto-published events and reactions. Skill `beans-command-registry`.
+  `collectDomainEvents`, `collectResult`, plus `decorators/` (`transactional`, declarative only —
+  nothing here wraps `execute()`). Skill `beans-command-pillar`.
+- `commands/` — `commands(spec, options?).withDependencies(deps)`. `emitter` inside `options` is what
+  adds `.on()`, auto-published events and reactions; `transaction` is orthogonal and available in both
+  overloads. Also `transactionalKeysOf`. Skill `beans-commands`.
 - `collections/` — hand-kept re-export alias onto `domain/collections/*`. Skill `beans-collections`.
 
 **The four non-layers** — `src/shared/` (`helpers/` and `redaction/`, both barrel-free on purpose),
-`src/way/` (zero logic, only `export { X } from "..."` lines), `src/testing/` (skill
-`beans-testing-double`), `src/node/` (`NodeEventEmitterAdapter`).
+`src/way/` (zero logic, only `export { X } from "..."` lines), `src/testing/` (`inMemoryRepositoryOf`
+plus `inMemoryTransactionOf`, the rollback runner over its stores — skill `beans-testing-double`),
+`src/node/` (`NodeEventEmitterAdapter`).
 
 **Subpaths.** Every `src/**/index.ts` becomes a public entry point through `exports`' `./*` wildcard —
 check the real list in `package.json`. Inside the package use the `@/*` alias (`@/domain/entity`,
@@ -139,6 +142,7 @@ Silent or hard-to-diagnose failures. Each one has bitten this repo.
 
 > Detail: [typescript-traps.md](docs/decisions/typescript-traps.md) ·
 > [decorator-mixin-traps.md](docs/decisions/decorator-mixin-traps.md) ·
+> [transactional-boundary.md](docs/decisions/transactional-boundary.md) ·
 > [removed-features.md](docs/decisions/removed-features.md)
 
 ## Subclass patterns
@@ -225,6 +229,13 @@ class CreateUser extends defineUseCase<typeof props, Deps, User>(props, "create-
   `BadRequestException` from `fromJSON`), while definition-time mistakes keep the domain exceptions.
 - **`Command.toJSON()` redacts**; `Entity`/`DomainRecord`'s does not (round-trip contract) and offers
   `toSafeJSON()`.
+- **`@transactional` marks, it never wraps.** It stamps `static readonly transactional = true`; the
+  boundary is opened by `commands`' `transaction` option, around `execute()` alone — never around
+  construction, publication or reactions (`COMMIT` → `emit` → react). A marked command in a registry
+  with no runner **runs normally**, by design; `transactionalKeysOf(spec)` is the bootstrap net, the
+  way `uniqueKeysOf` is for `unique`. A nested command inherits the open boundary; one dispatched by a
+  reaction opens its own. In a test, `inMemoryTransactionOf(...repositories)` (`@/testing`) is the
+  runner that actually rolls back — rows only, never entities.
 
 ### Multiplicity wrappers
 

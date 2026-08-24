@@ -3,7 +3,7 @@ import type {
 	AggregateCommandClassOf,
 	CommandDefinition,
 	CommandPropertiesShapeBase,
-	CommandRegistrySpecBase,
+	CommandsSpecBase,
 	WithSiblingCommands,
 } from "@/application/command/types";
 import type { IDomainEvent } from "@/domain/domain-event/types";
@@ -71,7 +71,7 @@ export function aggregateCommandOf<
 			readonly deep?: boolean;
 		}): readonly IDomainEvent[];
 	},
-	Siblings extends CommandRegistrySpecBase = Record<never, never>,
+	Siblings extends CommandsSpecBase = Record<never, never>,
 >(
 	properties: Shape,
 	source: string,

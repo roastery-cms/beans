@@ -98,6 +98,53 @@ return is merged **over** them — so a colliding name replaces one while still 
 original through the snapshot, the decorator shape a double needs for "make the third call
 throw".
 
+## The transaction runner is a second double, over the same stores
+
+`inMemoryTransactionOf(...repositories)` (`src/testing/in-memory-transaction-of.ts`) implements
+**`ITransactionRunner`** — the same type-only port an adapter implements — exactly as the repository
+double implements `RepositoryOf`. It exists because the no-op a test could already write,
+`{ transaction: (work) => work() }`, proves the *ordering* claim (`COMMIT` → `emit` → react) and
+nothing else: a row written by a `transactional` command that then failed stayed in the store, so the
+one guarantee the boundary exists for was the one thing no test could assert.
+
+**Why a `WeakMap` and not a member on the repository.** The runner needs the `Map` behind each
+double, and the spec applies *at runtime* — `inMemoryRepositoryOf(User, ["findById"])` must produce
+an object that literally has one method. Hanging `rows` (or a symbol-keyed slot) off that object
+would put a member on it that no `RepositoryOf` declares, and a locally declared symbol is a thing
+this package does not have anywhere. `helpers/row-stores.ts` keeps a module-level `WeakMap` keyed by
+the finished repository object instead; `inMemoryRepositoryOf` registers after the handler ran, so
+the entry is the same reference the caller holds, and weakness means an entry lives exactly as long
+as the double does.
+
+**Deep snapshot, restored on reject.** `structuredClone` copies the whole `Map` when the outermost
+`run` opens, and a rejection clears each store and reinserts from it. Deep rather than
+`new Map(rows)` because the pillar's posture is fidelity: `create`/`update` do always replace the
+whole row, but a handler's `seed` writing through `context.rows` can mutate one in place, and a
+rollback that left that standing would be a silent hole.
+
+**The rejection propagates untouched**, never wrapped in `TransactionFailedException`: it is the
+failure the caller has to see, and it is what stops `commands` before the publication loop — which
+is how "a rolled-back operation publishes nothing" gets tested rather than asserted.
+
+**A nested `run` joins the open transaction** (depth counter), so only the outermost call snapshots
+and restores. `commands` already opens a boundary only at the outermost marked command; this makes a
+hand-written nested `run` behave the same way, and is why the runner never has to be reentrant.
+
+**Two things it deliberately does not do.** It does not roll back *entities* — there is no change
+tracking here either, so an aggregate mutated inside a `handle` keeps its new values, the same way a
+missing `update()` leaves the store untouched; undoing it would hide precisely the bug the double
+exists to catch. And it does not model isolation between concurrent connections: reads inside the
+transaction see its own writes, and nothing else is running. That is the pillar's third documented
+infidelity, next to UTF-16 string ordering and base64-ordered binary keys.
+
+**Scope is explicit and wiring fails loudly.** A double left out of the argument list is not rolled
+back. An empty list, or an object `inMemoryRepositoryOf` did not build, throws
+`DependencyNotWiredException` at construction — a runner that would silently restore nothing is a
+wiring bug, and someone who wants a boundary that changes nothing already writes
+`(work) => work()`. The `source` those exceptions carry is the same `"in-memory-repository"` the
+repository double uses, now shared through `helpers/repository-source.ts`, so a test asserting the
+slot does not have to know which of the two doubles failed.
+
 ## The one duplicated rule in the package
 
 `helpers/repository-catalog-of.ts` is **the one place in the package where a rule exists twice**

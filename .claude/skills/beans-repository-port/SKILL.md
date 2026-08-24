@@ -90,6 +90,28 @@ calls.
 `NonNullable` applied *before* the primitive test, and each primitive tested **in a tuple**
 (`[X] extends [string]`) so a `unionVO([t.String(), t.Number()])` key is dropped.
 
+## `ITransactionRunner` lives here, and derives from nothing
+
+The one entry in this pillar not generated from a blueprint: one method,
+`run<T>(work: () => Promise<T>): Promise<T>`, type-only like everything else here (`dist`'s output for
+this directory must stay **0 bytes** — check it after touching the barrel). A transaction is a property
+of the *operation*, not of an entity's shape, so nothing about it is derivable; it sits in this pillar
+because it is the second contract an adapter implements alongside `RepositoryOf`.
+
+Two things not to change:
+
+- **The name.** Never `IUnitOfWork` — there is no change tracking and no identity map, so a commit does
+  not save an in-memory mutation, and the familiar name would invite exactly the bug
+  `inMemoryRepositoryOf` exists to catch. Same criterion that keeps `EntityStorage` distinct from
+  `Storage`.
+- **The scope.** It hands the runner a callback and nothing more; it cannot thread a connection into the
+  repositories that callback calls. That plumbing is the adapter's (`AsyncLocalStorage` on Node), and
+  the TSDoc says so — without it the `ROLLBACK` never reaches the `INSERT`.
+
+Who calls it: nobody in this pillar. `commands`' `transaction` option takes a *function*
+(`(work) => runner.run(work)`), so `application/` never names this type. See skill `beans-commands`.
+
 > Detail: [ordering-is-part-of-the-port.md](../../../docs/decisions/ordering-is-part-of-the-port.md)
 > · [repository-port-derivation.md](../../../docs/decisions/repository-port-derivation.md)
+> · [transactional-boundary.md](../../../docs/decisions/transactional-boundary.md)
 > · in-memory double: skill `beans-testing-double`

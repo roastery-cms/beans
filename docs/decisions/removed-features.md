@@ -86,9 +86,11 @@ branch lives in `Entity.get`, which is where it belongs. Its only real differenc
 name quoted in the collision message, now a `label` parameter.
 
 `cycleError` moved up to `shared/helpers/` the same way, taking a
-`label: "Command" | "Entity" | "Record"`. `installRunners` followed the same reasoning between the
-two registry pillars: identical logic, one differing word (`source`), so `evented-registry.ts`
-imports it by direct path from `command-registry.ts` rather than keeping a second copy.
+`label: "Command" | "Entity" | "Record"`. `installRunners` followed the same reasoning while there
+were still two registry pillars: identical logic, one differing word (`source`), so the evented one
+imported it by direct path instead of keeping a second copy. Merging the two into `commands` removed
+even that word — it now lives in `commands/helpers/install-runners.ts` with the `source` hard-coded,
+and `cycle-error.ts` collapsed the same way, one function for both kinds of chain node.
 
 `readDefinition` stays duplicated **on purpose**: its identity *is* the method name it probes
 (`defineEntity` vs. `defineCommand`) and the message explaining the class-field trap, so

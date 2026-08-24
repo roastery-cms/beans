@@ -1,7 +1,7 @@
 {
 	"name": "@roastery/beans",
 	"description": "Blueprint-driven DDD building blocks for TypeScript: declare the model once as a plain object and derive validated construction, the TypeBox schema, serialization, typed accessors, domain events, repository ports and coherent fixtures — across a domain layer (Entity, ValueObject, DomainEvent) and an application layer (Command, registries).",
-	"version": "0.4.1",
+	"version": "0.5.0",
 	"type": "module",
 	"author": {
 		"name": "Alan Reis",

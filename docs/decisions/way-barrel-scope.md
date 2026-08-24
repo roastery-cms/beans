@@ -6,18 +6,21 @@
 layers: `blueprint`/`entityOf`/`recordOf` (domain modeling, identified and not),
 `arrayOf`/`optionalOf`/`nullableOf` (multiplicity), `defineDomainEvent` (events),
 `defineUseCase` (a single-aggregate `AggregateCommand`, alias of `aggregateCommandOf`),
-`commandRegistry`/`defineEventHandler`/`eventedRegistry` (orchestration and reactions), plus the
+`commands`/`defineEventHandler` (orchestration and reactions), plus the
 `IEventEmitter` and `RepositoryOf` types.
 
-## Both registries are exported, deliberately
+## One orchestration name, not two
 
-`eventedRegistry` takes a *required* `IEventEmitter`, so reaching for it forces a decision about
-where events go before the reader has met domain events at all — a real step to climb on a path
-whose whole point is a gentle slope.
+`way` used to export both `commandRegistry` and `eventedRegistry`, because the evented one took a
+*required* `IEventEmitter` and reaching for it forced a decision about where events go before the
+reader had met domain events at all — a real step to climb on a path whose whole point is a gentle
+slope. The events-free registry existed as the shallower first rung.
 
-`commandRegistry` asks for none of that and is not a downgrade: `eventedRegistry` is built on it
-and delegates construction/execution to it wholesale, and a `CommandResult` carries its `events`
-either way, so moving up later is a change of registry, not of use cases.
+Merging them into `commands`, with the emitter optional inside `options`, removes the step without
+keeping the second rung: `commands(spec)` asks nothing about events (and has no `.on()` to offer),
+`commands(spec, { emitter })` is the same registry publishing and reacting, and a `CommandResult`
+carries its `events` either way. Moving up is one argument, not a different name — which is also
+why `way` no longer has to explain which of two functions to start with.
 
 `RepositoryOf` is the port generator a `way`-built feature declares its persistence contract with,
 while the granular `ICan*` capabilities it fuses stay behind `domain/repository/types`, the same
@@ -61,10 +64,10 @@ imports none.
 address wrong: the adapter is production code (an app whose host is Node publishes through it),
 and a subpath called `testing` said the opposite to every reader who never reached the TSDoc. Its
 `inner` emitter is `public readonly` and defaults to a fresh one, since that is the only way to
-subscribe (an `IEventEmitter` has no `.on` — `eventedRegistry` runs reactions through its own
+subscribe (an `IEventEmitter` has no `.on` — the registry runs reactions through its own
 registry, never through the emitter). It special-cases exactly one name: `"error"` is Node's one
 reserved channel and emitting it with no listener throws `ERR_UNHANDLED_ERROR`, which — because
-`eventedRegistry` `await`s `emit` inside the loop publishing a command's events — would reject the
+the registry `await`s `emit` inside the loop publishing a command's events — would reject the
 `CommandResult` of a command that succeeded. The adapter returns early when nothing is listening
 on `"error"`, which is behaviour-identical to every other name (a zero-listener emit is already a
 no-op) and is not a dropped event.

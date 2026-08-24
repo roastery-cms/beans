@@ -10,7 +10,7 @@ import type { ResultOfClass } from "./result-of-class.type";
  * `CommandResult` `execute()` itself returns.
  *
  * @typeParam Class - The command class this runner wraps.
- * @see `ICommandRegistry.get`
+ * @see `ICommands.get`
  */
 export type CommandRunner<Class extends AnyCommandClass> = (
 	payload: PayloadOfClass<Class>,

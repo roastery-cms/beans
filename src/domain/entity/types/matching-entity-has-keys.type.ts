@@ -26,7 +26,7 @@ import type { PropertyClassMatches } from "./property-class-matches.type";
  *   union back into an all-keys-satisfied boolean.
  * @see {@link PropertyClassMatches} — the per-key rule, and where the
  *   subclass and multiplicity semantics are documented.
- * @see `RegistrableKeys` in `@roastery/beans/application/command-registry/types` — the
+ * @see `RegistrableKeys` in `@roastery/beans/application/commands/types` — the
  *   idiom this mirrors: map each key to itself-or-`never`, then index to
  *   collapse into a union.
  */

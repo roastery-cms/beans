@@ -2,12 +2,12 @@
 
 **Status:** closed. **Origin:** extracted from `CLAUDE.md` on 2026-08-21.
 
-`commandRegistry(spec).withDependencies(dependencies)` gates `.get(key)` to only the commands
+`commands(spec, options?).withDependencies(dependencies)` gates `.get(key)` to only the commands
 in `spec` whose declared `Deps` `dependencies` structurally satisfies — resolved entirely at
 compile time.
 
 **Two-phase for the same reason `blueprint` is.** A literal cannot reference its own `typeof`,
-so `Spec` is fixed by the `commandRegistry(spec)` call before `withDependencies`'s
+so `Spec` is fixed by the `commands(spec)` call before `withDependencies`'s
 `Dependencies` can be checked against every spec member's `Deps` in the second.
 
 ## The gate has no runtime footprint
@@ -58,7 +58,7 @@ treats both outcomes identically, at either depth, precisely for this.
 `strictFunctionTypes`'s contravariant parameter checking (deliberately, for OOP covariance). A
 `Dependencies` record whose nested method-shaped member is only bivariantly compatible with what
 a command's `Deps` declares can satisfy `RegistrableKeys` without truly being a safe substitute.
-Not fixable from inside `command-registry/` without changing `Command`/`ICommand` itself, which
+Not fixable from inside `commands/` without changing `Command`/`ICommand` itself, which
 is out of scope — documented, not engineered around, matching the "nothing stops a caller who
 bypasses TypeScript" stance already taken for the gate itself.
 
@@ -80,21 +80,36 @@ the second, unrelated call checks it. Two sibling calls to the same key from dif
 a chain — not nested inside one another — correctly stay unflagged, the same "siblings, not a
 cycle" distinction the entity guard already draws.
 
-`eventedRegistry` carries the same guard for reactions: a reaction chain that cycles back to a
+The same guard covers reactions, on the same `chain`: a reaction chain that cycles back to a
 command key or event name already on its own call chain throws the same `LoopDetectedException`;
 for a cycle closing on an *event* specifically, `react()` routes it through
 `onError`/`defaultOnError` like any other reaction failure instead of throwing, preserving the
 "never rejects the `CommandResult`" guarantee.
 
+## One registry, one bag of runners
+
+`commandRegistry` and `eventedRegistry` were merged into `commands` on 2026-08-24: the emitter moved
+into an optional `options` object, and the two overloads (`commands(spec)` / `commands(spec,
+{ emitter })`) are what decides whether the returned registry carries `.on()` at all. `emitter` stays
+*required inside* `options` precisely so the overloads separate — and so that `commands(spec,
+{ onError })`, isolation for reactions that could never be registered, is a compile error.
+
+The merge also collapsed the two `commands` bags the evented pillar used to keep. `.get()`, the
+direct accessors and every reaction's `deps.commands` were served by a decorated bag, while a
+*command*'s own `deps.commands` came from the plain `commandRegistry` underneath — so a command
+dispatched from inside another command published nothing and triggered no reaction, an asymmetry no
+caller could see and one that stranded the nested command's events entirely. There is now exactly one
+`buildCommands(chain)`, and every path reaches it.
+
 ## Where the types live
 
-`AnyCommandClass`, `CommandRegistrySpecBase`, `CommandRunner`, `DepsOfClass`, `PayloadOfClass`
+`AnyCommandClass`, `CommandsSpecBase`, `CommandRunner`, `DepsOfClass`, `PayloadOfClass`
 and `ResultOfClass` live in `application/command/types/`, not in the registry pillar, and
-`command-registry/types` re-exports the three public ones so its own subpath still serves them.
+`commands/types` re-exports the three public ones so its own subpath still serves them.
 All six describe a *command class*, which is that pillar's vocabulary — and a command's own
 `Siblings` declaration needs them at the `defineUseCase` call site, long before any registry
 exists. Leaving them in the registry would have made `application/command` import from
-`application/command-registry`, which already imports `CommandResult` back from there: a cycle
+`application/commands`, which already imports `CommandResult` back from there: a cycle
 between the two pillars.
 
 `DepsOfClass`/`PayloadOfClass`/`ResultOfClass` stay off the `command/types` barrel exactly as they
@@ -105,7 +120,7 @@ recover specifics via `infer` later" idiom `AnyValueObjectClass`/`AnyEntityClass
 
 ## Sibling commands: why `Siblings` is given rather than inferred
 
-A use case is declared before the `commandRegistry` that registers it exists, so `typeof spec`
+A use case is declared before the `commands` registry that registers it exists, so `typeof spec`
 would be circular. `SiblingCommands` (registry side) *computes* its keys from the spec;
 `WithSiblingCommands` (declaration side) is *given* them. Same bag, opposite directions.
 

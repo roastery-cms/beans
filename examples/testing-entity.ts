@@ -23,16 +23,16 @@ import type {
 import {
     blueprint,
     defineDomainEvent,
-    commandRegistry,
     defineUseCase,
     entityOf,
     type RepositoryOf,
-    eventedRegistry,
+    commands,
     defineEventHandler,
+    transactional,
 } from "@/way";
 import { ResourceNotFoundException } from "@roastery/terroir/exceptions/application";
 import { Source } from "@roastery/terroir/symbols";
-import { inMemoryRepositoryOf } from "@/testing";
+import { inMemoryRepositoryOf, inMemoryTransactionOf } from "@/testing";
 import { emit } from "@/domain/entity/decorators";
 import {
     OptionalBooleanVO,
@@ -43,6 +43,7 @@ import { NodeEventEmitterAdapter } from "@/node";
 import type { DomainEvent } from "@/domain";
 import type { WithSiblingCommands } from "@/application/command/types";
 import type { InputValuesOf } from "@/domain/entity/types/input-values-of.type";
+import type { TransactionBoundary } from "@/application/commands/types";
 
 const postTagProperties = blueprint({
     name: StringVO,
@@ -85,12 +86,17 @@ const postTagRepository = inMemoryRepositoryOf(PostTag, {
     write: ["create", "update"],
 });
 
+// `CreatePostTagUseCase` is `@transactional`; this is what gives the marker
+// teeth here — a create that fails leaves no row behind.
+const transactionalRunner = inMemoryTransactionOf(postTagRepository);
+
 type PostTagDependencies = {
     postTagRepository: IPostTagRepository;
 };
 
 const createPostTagProperties = blueprint({ name: StringVO }).done();
 
+@transactional
 class CreatePostTagUseCase extends defineUseCase<
     typeof createPostTagProperties,
     PostTagDependencies,
@@ -186,16 +192,18 @@ const PostTagRenameEvent = defineEventHandler<
     "",
 );
 
-const registry = eventedRegistry(
+const registry = commands(
     {
         createPostTag: CreatePostTagUseCase,
         findPostTagBySlug: FindPostTagBySlug,
         updatePostTagBySlug: UpdatePostTagBySlug,
     },
-    new NodeEventEmitterAdapter(),
-)
-    .withDependencies({ postTagRepository })
-    .on(PostTagWasRenamedEvent, PostTagRenameEvent);
+    {
+        emitter: new NodeEventEmitterAdapter(),
+        transaction: (work) => transactionalRunner.run(work),
+    },
+).withDependencies({ postTagRepository });
+// .on(PostTagWasRenamedEvent, PostTagRenameEvent);
 
 // console.log(
 //     await postTagRepository.findMany({
@@ -205,6 +213,8 @@ const registry = eventedRegistry(
 //         orderBy: "id",
 //     }),
 // );
+//
+await registry.createPostTag({ name: "meme" });
 
 const { result: renamed } = await registry.updatePostTagBySlug({
     slug: "meme",
