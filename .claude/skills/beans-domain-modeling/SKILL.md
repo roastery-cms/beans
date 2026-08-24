@@ -1,6 +1,6 @@
 ---
 name: beans-domain-modeling
-description: Use when writing or editing an `Entity` / `entityOf`, a `DomainRecord` / `recordOf` or a `ValueObject` / `defineMeta` — accessors, `AccessorsOf`, identity, `fromJSON`, `demo()`, `set`/`setMany`, `[Storage]`, `destroy()`, `isUnique`/`uniqueKeysOf`, `toJSON`/`toSafeJSON`, nested aggregates — or when construction, mutation, hydration or serialization of a domain model behaves unexpectedly.
+description: Use when writing or editing an `Entity` / `entityOf`, a `DomainRecord` / `recordOf` or a `ValueObject` / `defineMeta` — accessors, `AccessorsOf`, identity, `fromJSON`, `demo()`, `set`/`setMany`, `[Storage]`, `destroy()`, `isUnique`/`uniqueKeysOf`, `toJSON`/`toSafeJSON`, nested aggregates, `entityHas` / `reshapeShape` / `reshapeTo` — or when construction, mutation, hydration, serialization or a narrowed projection of a domain model behaves unexpectedly.
 ---
 
 # Domain modeling: `ValueObject`, `Entity`, `DomainRecord`
@@ -176,6 +176,49 @@ so `arrayOf(User)` compiles in a command where `User` does not.
 - **Cycles are detected, not survived** — `CyclicEntityDefinitionException` naming the type, from both the
   schema-derivation and the construction guard. Siblings of the same class are fine. The cycle still has to
   be broken.
+
+## Shape questions: `entityHas` and `reshapeTo`
+
+Both live in `domain/entity/helpers` and answer the same question — *is this key backed by this class?*
+`entityHas` hands back a boolean, `reshapeTo` hands back the payload cut down to a target shape. Only the
+reshape pair is re-exported from `@/way`. Both read the blueprint through the same `Object.create` probe
+`fromJSON` uses; neither constructs anything.
+
+```ts
+class AuthorCard extends entityOf({ name: StringVO }, "author-card") {}
+
+const nameOnly = reshapeShape({ name: StringVO });
+const cardShape = reshapeShape({ title: StringVO, author: AuthorCard, tags: arrayOf(TagCard) });
+
+PostCard.fromJSON(reshapeTo(cardShape, post)); // the intended use
+```
+
+- **A target is not a blueprint.** `reshapeShape` is the identity function `blueprint().done()` is — it
+  exists for the `const` inference and to name the concept. It never reaches `entityOf`/`recordOf` and
+  carries no rules: `default`/`derive` act on construction input, so a rule cannot stand in for a key an
+  already-built source lacks. Do not reach for `blueprint()` here.
+- **A key may nest another target instead of naming a class**, which is what saves declaring a throwaway
+  subclass per level. **A class states multiplicity and must match the source's exactly** (`optionalOf(X)`
+  does not accept an `arrayOf` key); **a nested target states none and adopts the source's** — `arrayOf`
+  comes back as an array of cut items, `optionalOf` as the item or `undefined`, `nullableOf` as the item or
+  `null`, an unwrapped aggregate as one object. A nested target against a *value-object* key throws: there
+  is no aggregate to cut.
+- **Identity rides along when the source is an `Entity`**, at the root and at every nested level — that is
+  what makes the result feed another entity's `fromJSON`. A `DomainRecord` contributes none, and a nested
+  target declares none, so that too is read off the source. `ReshapedTo` takes the discriminant from the
+  source's own `toJSON`, which is why `ReshapableModel` is written structurally rather than as
+  `IEntity | IRecord`: a union would resolve it against the union instead of the concrete subclass.
+- **Nested aggregates match structurally; the value-object leaf is nominal** (the declared class or a
+  subclass, shared with `entityHas` through `@/shared/helpers/property-matches`). So `AuthorCard` need share
+  nothing with `Author` — the whole point — but two separate `customRecordVO()` calls are one type and two
+  objects, so the type says `true` where the runtime says `false`. Mint the class once, at module scope.
+- **The cut comes from `toJSON()`, never `toSafeJSON()`** — redacting would break the round trip that makes
+  the payload hydratable. The instance is never touched; the return is a fresh DTO.
+- **A mismatch throws `InvalidPropertyException`** with the dotted path in `property` (`"author.twitter"`;
+  a divergence inside an array reports the item, `"tags[].headline"`), raised before anything is projected.
+- **The wrapper passed to `entityHas` is only read** — its `wraps`/`wrapperKind` statics — never constructed
+  and never asked for a schema, so an inline `arrayOf(PostTag)` in the *argument* is safe, unlike in a
+  blueprint. An empty expected shape is `true`, vacuously.
 
 > Detail: [record-is-entity-minus-identity.md](../../../docs/decisions/record-is-entity-minus-identity.md)
 > · [per-pillar-cycle-guards.md](../../../docs/decisions/per-pillar-cycle-guards.md)

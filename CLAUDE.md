@@ -238,6 +238,30 @@ const postProperties = blueprint({ tags: arrayOf(PostTag), author: optionalOf(Au
 - A wrapper never wraps a wrapper; a wrapped key derives no repository method; `demo()` yields an empty
   container.
 
+## Shape questions
+
+Two helpers in `domain/entity/helpers` answer the same family of question — *is this key backed by this
+class?* — `entityHas` as a boolean, `reshapeTo` as the payload cut down to a target. Only the reshape pair
+is on `@/way`. Skill `beans-domain-modeling`.
+
+```ts
+const cardShape = reshapeShape({ title: StringVO, author: AuthorCard, tags: arrayOf(TagCard) });
+PostCard.fromJSON(reshapeTo(cardShape, post)); // identity rides along, at the root and every level
+```
+
+- **A target is not a blueprint.** `reshapeShape` never reaches `entityOf`/`recordOf` and carries no rules:
+  `default`/`derive` act on construction input, so a rule can never stand in for a key an already-built
+  source lacks. A target key may nest another target instead of naming a class.
+- **A class in the target states multiplicity and must match the source's exactly; a nested target states
+  none** and adopts the source's. It declares no identity either, so that comes from the source too — an
+  entity contributes it, a record has none to give. A nested target against a value-object key throws.
+- **Nested aggregates match structurally, the value-object leaf nominally.** `AuthorCard` need share nothing
+  with `Author` — that is the point — but two separate `customRecordVO()` calls do *not* match: mint the
+  class once, at module scope, and reference it from both sides.
+- **The cut is taken from `toJSON()`, never `toSafeJSON()`** — redacting would break the round trip that
+  makes the payload hydratable. A mismatch throws `InvalidPropertyException` carrying the dotted path
+  (`"author.twitter"`, `"tags[].headline"`) before anything is projected.
+
 ## Conventions
 
 - **Reach for the specific domain exception, not the generic one** (`ImmutablePropertyException`,
