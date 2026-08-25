@@ -136,7 +136,7 @@ describe("multiplicity wrappers", () => {
 		 * entity inside a list raises into its **own** buffer, so without the
 		 * wrapper forwarding the deep drain its events would never come out.
 		 */
-		it("forwards a deep domain-event drain into every item", () => {
+		it("forwards a domain-event drain into every item", () => {
 			const post = new Post({
 				title: "x",
 				tags: [{ name: "Alan" }, { name: "Bob" }],
@@ -145,9 +145,9 @@ describe("multiplicity wrappers", () => {
 			post.tags[0]?.rename("First");
 			post.tags[1]?.rename("Second");
 
+			expect(post.pullDomainEvents({ deep: false })).toHaveLength(0);
+			expect(post.pullDomainEvents()).toHaveLength(2);
 			expect(post.pullDomainEvents()).toHaveLength(0);
-			expect(post.pullDomainEvents({ deep: true })).toHaveLength(2);
-			expect(post.pullDomainEvents({ deep: true })).toHaveLength(0);
 		});
 
 		it("derives a t.Array schema over the item's own model", () => {
@@ -387,6 +387,169 @@ describe("multiplicity wrappers", () => {
 				"StrongPass1!",
 				"StrongPass2!",
 			]);
+		});
+	});
+
+	describe("adopting built items", () => {
+		const postProperties = { title: StringVO, tags: arrayOf(Tag) };
+
+		class Post extends entityOf(postProperties, "wrapper-adopt-post") {
+			public addTag(tag: Tag): void {
+				this.set("tags", [...this.tags, tag]);
+			}
+		}
+
+		const makePost = (): Post =>
+			new Post({ title: "x", tags: [{ name: "Alpha" }] });
+
+		it("keeps the appended instance itself", () => {
+			const post = makePost();
+			const tag = new Tag({ name: "Beta" });
+
+			post.addTag(tag);
+
+			expect(post.tags[1]).toBe(tag);
+			expect(post.tags.map((it) => it.name)).toEqual(["Alpha", "Beta"]);
+		});
+
+		it("preserves the existing items' identities across the append", () => {
+			const post = makePost();
+			const before = post.tags[0]?.id;
+
+			post.addTag(new Tag({ name: "Beta" }));
+
+			expect(post.tags[0]?.id).toBe(before as string);
+		});
+
+		it("carries the appended item's buffered events into the aggregate", () => {
+			const post = makePost();
+			const tag = new Tag({ name: "Beta" });
+
+			tag.rename("Gamma");
+			post.addTag(tag);
+
+			expect(
+				post.pullDomainEvents({ deep: true }).map((event) => event.name),
+			).toEqual(["TagRenamed"]);
+		});
+
+		it("keeps the existing items' state when every key carries a rule", () => {
+			const flagProperties = blueprint({ label: StringVO }).with({
+				label: { default: "untitled" },
+			});
+
+			class Flag extends entityOf(flagProperties, "wrapper-adopt-flag") {}
+
+			const boardProperties = { flags: arrayOf(Flag) };
+
+			class Board extends entityOf(boardProperties, "wrapper-adopt-board") {
+				public addFlag(flag: Flag): void {
+					this.set("flags", [...this.flags, flag]);
+				}
+			}
+
+			const board = new Board({ flags: [{ label: "alpha" }] });
+
+			board.addFlag(new Flag({ label: "beta" }));
+
+			expect(board.flags.map((it) => it.label)).toEqual(["alpha", "beta"]);
+		});
+	});
+
+	describe("equals", () => {
+		const StringList = arrayOf(StringVO);
+		const MaybeString = optionalOf(StringVO);
+		const NullableString = nullableOf(StringVO);
+		const TagList = arrayOf(Tag);
+
+		it("is true for the same items in the same order", () => {
+			expect(
+				new StringList(["a", "b"]).equals(new StringList(["a", "b"])),
+			).toBe(true);
+		});
+
+		it("is order-sensitive — a wrapper is a sequence, not a set", () => {
+			expect(
+				new StringList(["a", "b"]).equals(new StringList(["b", "a"])),
+			).toBe(false);
+		});
+
+		it("is false for a different number of items", () => {
+			expect(new StringList(["a", "b"]).equals(new StringList(["a"]))).toBe(
+				false,
+			);
+			expect(new StringList([]).equals(new StringList(["a"]))).toBe(false);
+		});
+
+		it("is true for two empty containers of the same kind", () => {
+			expect(StringList.demo().equals(StringList.demo())).toBe(true);
+			expect(MaybeString.demo().equals(MaybeString.demo())).toBe(true);
+			expect(NullableString.demo().equals(NullableString.demo())).toBe(true);
+		});
+
+		it("separates an empty single-valued container from a filled one", () => {
+			expect(new MaybeString("a").equals(MaybeString.demo())).toBe(false);
+			expect(MaybeString.demo().equals(new MaybeString("a"))).toBe(false);
+			expect(new NullableString("a").equals(new NullableString("a"))).toBe(
+				true,
+			);
+		});
+
+		/** Each item answers with its own pillar's rule — an entity by its id. */
+		it("compares a wrapped entity by its id, not by its state", () => {
+			const raw = new TagList([{ name: "one" }, { name: "two" }]).toJSON();
+			const list = new TagList(raw);
+			const renamed = new TagList([
+				{ ...raw[0], name: "changed", slug: "changed" },
+				raw[1],
+			] as ConstructorParameters<typeof TagList>[0]);
+
+			expect(list.equals(renamed)).toBe(true);
+		});
+
+		it("is false when a wrapped entity is a different one", () => {
+			expect(
+				new TagList([{ name: "one" }]).equals(new TagList([{ name: "one" }])),
+			).toBe(false);
+		});
+
+		/**
+		 * Two `arrayOf(StringVO)` calls mint two classes. Answering `false` is
+		 * the contract; the guard also keeps `#items` from throwing a
+		 * `TypeError` on a container it does not own.
+		 */
+		it("is false across two separate arrayOf calls, without throwing", () => {
+			const OtherStringList = arrayOf(StringVO);
+
+			expect(new StringList(["a"]).equals(new OtherStringList(["a"]))).toBe(
+				false,
+			);
+		});
+
+		/**
+		 * The `instanceof Wrapper` guard is what makes `#items` legible, but on
+		 * its own it accepts a subclass — where every other `equals` in the
+		 * package refuses one. The exact prototype check is the second guard,
+		 * and it keeps the relation symmetric.
+		 */
+		it("is false for a subclass of the container, in either direction", () => {
+			class UpperList extends StringList {}
+
+			const plain = new StringList(["a"]);
+			const sub = new UpperList(["a"]);
+
+			expect(plain.equals(sub)).toBe(false);
+			expect(sub.equals(plain)).toBe(false);
+			expect(sub.equals(new UpperList(["a"]))).toBe(true);
+		});
+
+		it("is false for anything that is not a wrapper", () => {
+			const list = new StringList(["a"]);
+
+			expect(list.equals(["a"])).toBe(false);
+			expect(list.equals(null)).toBe(false);
+			expect(list.equals(undefined)).toBe(false);
+			expect(list.equals(list)).toBe(true);
 		});
 	});
 });

@@ -2,6 +2,7 @@ import type { AnyPropertyRule } from "@/domain/entity/types/any-property-rule.ty
 import type { IValueObjectContext } from "@/domain/value-object/types";
 import { applyRuleDefaults } from "@/shared/helpers/apply-rule-defaults";
 import { cycleError } from "@/shared/helpers/cycle-error";
+import { isBuiltInstance } from "@/shared/helpers/is-built-instance";
 import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
 import { rawOf } from "@/shared/helpers/raw-of";
 import type { AnySetHandlers } from "@/shared/helpers/read-set-handlers";
@@ -42,10 +43,18 @@ function buildProperty(
 ): unknown {
 	const propertyClass = properties[key] as unknown;
 
-	if (!isValueObjectClass(propertyClass))
-		return useDefault
-			? (propertyClass as { demo(): unknown }).demo()
-			: new (propertyClass as new (payload: never) => unknown)(value as never);
+	if (!isValueObjectClass(propertyClass)) {
+		if (useDefault) return (propertyClass as { demo(): unknown }).demo();
+
+		// Adoption, not reconstruction — see `isBuiltInstance`. A record's
+		// blueprint may hold an entity, so the buffered events this preserves
+		// are the same ones `pullDomainEvents` forwards.
+		if (isBuiltInstance(propertyClass, value)) return value;
+
+		return new (propertyClass as new (payload: never) => unknown)(
+			value as never,
+		);
+	}
 
 	const context: IValueObjectContext = { name: key, source };
 

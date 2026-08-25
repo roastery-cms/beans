@@ -65,7 +65,9 @@ class User extends entityOf(userProperties, "user") {
 - **`onDelete` wraps `destroy()`**, checking `isDestroyed` *before* delegating to `super.destroy()` so a
   repeated call doesn't raise twice.
 - **`emit` raises after the method returns.** No `try`/`catch`: if the method throws, the `raiseEvent`
-  written after the call simply never executes and the exception propagates untouched.
+  written after the call simply never executes and the exception propagates untouched. A declared
+  payload is therefore cut from the **post-method** state; `onCreate`'s is cut after `super(...args)`
+  returned, so derived keys are already resolved, and `onDelete`'s before `destroy()` took effect.
 - **`onError` is the one decorator that catches.** It wraps the call in `try`/`catch`, calls
   `eventFactory(error)`, raises what it returns, then **always re-throws** the original error. The
   event is a side channel only, never a way to swallow a failure.
@@ -75,6 +77,13 @@ class User extends entityOf(userProperties, "user") {
 The three class decorators and `emit` accept the **bare-class form only**
 (`BareDomainEventClass = new (aggregateId: string) => IDomainEvent`) — a decorator is declared once,
 with no per-call payload to build an instance from.
+
+**That constraint survived the event payload, and is why nothing here changed.** An event may declare
+`static readonly payload` (a shape, `Json` or `SafeJson`), but the payload comes from the *entity*,
+resolved by `raiseEvent` at the moment of the raise — never from the constructor. So a
+payload-carrying event is still `new (aggregateId: string)`, still a `BareDomainEventClass`, and
+`@emit(OrderShipped)` takes no second argument. **Do not add one**: the declaration lives on the event
+class and nowhere else, or the two sources diverge in silence. Skill `beans-domain-events`.
 
 `onError` additionally accepts a factory, `EntityErrorEventFactory = (error: unknown) => IDomainEvent`,
 because its error is genuinely call-time data. The bare-class form is accepted too, purely for reading
@@ -119,5 +128,6 @@ they dropped to one consumer; their logic lives inline in `on-create.decorator.t
 `emit.decorator.ts`. Do not reintroduce the indirection.
 
 > Detail: [decorator-mixin-traps.md](../../../docs/decisions/decorator-mixin-traps.md)
+> · [event-payload.md](../../../docs/decisions/event-payload.md)
 > · [typescript-traps.md](../../../docs/decisions/typescript-traps.md)
 > · [removed-features.md](../../../docs/decisions/removed-features.md)

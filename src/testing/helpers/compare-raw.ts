@@ -3,8 +3,10 @@
  * wants: negative when `a` comes first, positive when `b` does, `0` when
  * neither wins.
  *
- * `beans` ships no comparator anywhere else — `deepEquals` answers equality and
- * nothing more — so this is it, and it is deliberately three lines. It can be,
+ * `beans` ships no *ordering* comparator anywhere else — `deepEquals` answers
+ * structural equality over a raw value and the domain bases answer equality
+ * over an instance, neither of which orders anything — so this is it, and it is
+ * deliberately three lines. It can be,
  * because the *type* did the hard part first: `RepositoryOrderKeysOf` only ever
  * admits a key whose raw value is a single primitive, so `a < b` here is
  * comparing two strings, two numbers or two booleans and never a mix.

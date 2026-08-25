@@ -3,7 +3,7 @@ import { StringVO, SlugVO } from "@/domain/collections/value-objects";
 import { customStringVO } from "@/domain/collections/value-objects/custom";
 import { NullableDateTimeVO } from "@/domain/collections/value-objects/nullable";
 import { OptionalStringVO } from "@/domain/collections/value-objects/optional";
-import { DomainEvent } from "@/domain/domain-event";
+import { DomainEvent, defineDomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
 import { blueprint, entityOf } from "@/domain/entity/helpers";
 import type {
@@ -27,7 +27,7 @@ import {
 	InvalidPropertyException,
 	PropertyNameCollisionException,
 } from "@roastery/terroir/exceptions/domain";
-import { Storage } from "@roastery/terroir/symbols";
+import { Json, Storage } from "@roastery/terroir/symbols";
 import { beforeEach, describe, expect, it } from "bun:test";
 
 /** Event with no payload of its own — constructor inherited from `DomainEvent`, just `aggregateId`. */
@@ -409,6 +409,71 @@ describe("Entity", () => {
 				// @ts-expect-error — `updatedAt` exige a identidade inteira.
 				() => new Bean({ ...domain, updatedAt: IDENTITY.updatedAt }),
 			).toThrow(IncompleteIdentityException);
+		});
+	});
+
+	describe("adopting a built instance", () => {
+		it("keeps the instance itself instead of rebuilding it", () => {
+			const author = new Author({ name: "alan" });
+			const post = new Post({ title: "primeiro", author });
+
+			expect(post.get("author")).toBe(author);
+		});
+
+		it("preserves the adopted instance's buffered events", () => {
+			const author = new Author({ name: "alan" });
+
+			author.announce("author.followed");
+
+			const post = new Post({ title: "primeiro", author });
+
+			expect(
+				post.pullDomainEvents({ deep: true }).map((event) => event.name),
+			).toEqual(["author.followed"]);
+		});
+
+		it("adopts through `set` too", () => {
+			const post = makePost();
+			const author = new Author({ name: "outro" });
+
+			post.set("author", author);
+
+			expect(post.get("author")).toBe(author);
+			expect(post.get("author").id).toBe(author.id);
+		});
+
+		/**
+		 * Adoption and equality answer two different questions, and the two
+		 * rulers disagree on purpose: `isBuiltInstance` asks "is this already
+		 * one of these?" and `instanceof` accepts a domain-vocabulary
+		 * subclass, while `equals` asks "are these the same thing?" and takes
+		 * the exact prototype. So a subclass instance is adopted without a
+		 * word and then never compares equal to a plain one — the asymmetry
+		 * this test exists to keep visible.
+		 */
+		it("adopts a subclass instance that equality then refuses", () => {
+			class DraftAuthor extends Author {}
+
+			const draft = new DraftAuthor({ name: "alan" });
+			const post = new Post({ title: "primeiro", author: draft });
+
+			expect(post.get("author")).toBe(draft);
+
+			const twin = new Author(draft.toJSON());
+
+			expect(draft.equals(twin)).toBe(false);
+			expect(twin.equals(draft)).toBe(false);
+			expect(
+				post.sameStateAs(new Post({ ...post.toJSON(), author: twin })),
+			).toBe(false);
+		});
+
+		it("still rebuilds a serialized payload", () => {
+			const author = new Author({ name: "alan" });
+			const post = new Post({ title: "primeiro", author: author.toJSON() });
+
+			expect(post.get("author")).not.toBe(author);
+			expect(post.get("author").id).toBe(author.id);
 		});
 	});
 
@@ -1228,12 +1293,14 @@ describe("Entity", () => {
 			expect(Bean.demo().pullDomainEvents()).toEqual([]);
 		});
 
-		it("does not surface an event raised by a nested entity", () => {
+		it("surfaces an event raised by a nested entity by default", () => {
 			const post = makePost();
 
 			post.get("author").announce("author.followed");
 
-			expect(post.pullDomainEvents()).toEqual([]);
+			expect(post.pullDomainEvents().map((event) => event.name)).toEqual([
+				"author.followed",
+			]);
 		});
 
 		it("surfaces a nested entity's events when pulled deep", () => {
@@ -1267,16 +1334,90 @@ describe("Entity", () => {
 			expect(author.pullDomainEvents()).toEqual([]);
 		});
 
-		it("leaves the nested buffer intact on a shallow pull", () => {
+		it("leaves the nested buffer intact on a `{ deep: false }` pull", () => {
 			const post = makePost();
 			const author = post.get("author");
 
 			author.announce("author.followed");
-			post.pullDomainEvents();
+			post.pullDomainEvents({ deep: false });
 
 			expect(author.pullDomainEvents().map((event) => event.name)).toEqual([
 				"author.followed",
 			]);
+		});
+
+		describe("a declared payload", () => {
+			const BeanHarvested = defineDomainEvent("bean.harvested", {
+				name: StringVO,
+			});
+
+			const BeanDumped = defineDomainEvent("bean.dumped", Json);
+
+			class Harvestable extends entityOf(
+				{ name: StringVO, slug: SlugVO },
+				"bean",
+			) {
+				public harvest(): void {
+					this.raiseEvent(BeanHarvested);
+				}
+
+				public dump(): void {
+					this.raiseEvent(BeanDumped);
+				}
+			}
+
+			function makeHarvestable(): Harvestable {
+				return new Harvestable({ name: "alan", slug: "hello world" });
+			}
+
+			it("buffers the cut under a payload key", () => {
+				const bean = makeHarvestable();
+
+				bean.harvest();
+
+				expect(bean.pullDomainEvents()[0]?.payload).toEqual({
+					name: "alan",
+				});
+			});
+
+			it("still stamps name, occurredAt and aggregateId over it", () => {
+				const bean = makeHarvestable();
+
+				bean.harvest();
+
+				const [event] = bean.pullDomainEvents();
+
+				expect(event?.name).toBe("bean.harvested");
+				expect(event?.aggregateId).toBe(bean.id);
+				expect(event?.occurredAt).toBeString();
+			});
+
+			it("buffers the whole serialization for the Json directive", () => {
+				const bean = makeHarvestable();
+				const serialized = bean.toJSON();
+
+				bean.dump();
+
+				expect(bean.pullDomainEvents()[0]?.payload).toEqual(serialized);
+			});
+
+			it("omits the key entirely when the event declares nothing", () => {
+				const bean = makeBean();
+
+				bean.plant();
+
+				const [event] = bean.pullDomainEvents();
+
+				expect(event).not.toHaveProperty("payload");
+			});
+
+			it("leaves an object literal's own payload key untouched", () => {
+				const bean = makeBean();
+
+				bean.announce("bean.custom", { payload: { mine: true } });
+
+				expect(bean.pullDomainEvents()[0]?.payload).toEqual({ mine: true });
+			});
 		});
 	});
 
@@ -1827,6 +1968,195 @@ describe("Entity", () => {
 
 			expect(() => bad.rename("bean")).toThrow(
 				InvalidEntityDefinitionException,
+			);
+		});
+	});
+
+	describe("equals", () => {
+		it("is true for the same class holding the same id, whatever the state", () => {
+			const row = { ...IDENTITY, name: "alan", slug: "hello-world" };
+			const stored = Bean.fromJSON(row);
+			const read = Bean.fromJSON(row);
+
+			read.set("name", "reis");
+
+			expect(stored.equals(read)).toBe(true);
+			expect(read.equals(stored)).toBe(true);
+		});
+
+		it("is false for two entities of the same class with different ids", () => {
+			expect(makeBean().equals(makeBean())).toBe(false);
+		});
+
+		it("is false for a subclass sharing the id, in both directions", () => {
+			class Sprout extends Bean {}
+
+			const row = { ...IDENTITY, name: "alan", slug: "hello-world" };
+			const base = Bean.fromJSON(row);
+			const derived = Sprout.fromJSON(row);
+
+			expect(base.id).toBe(derived.id);
+			expect(base.equals(derived)).toBe(false);
+			expect(derived.equals(base)).toBe(false);
+		});
+
+		it("is false for another entity class sharing the id", () => {
+			const bean = Bean.fromJSON({
+				...IDENTITY,
+				name: "alan",
+				slug: "hello-world",
+			});
+			const author = Author.fromJSON({ ...IDENTITY, name: "alan" });
+
+			expect(bean.equals(author)).toBe(false);
+		});
+
+		it("is false for anything that is not an entity", () => {
+			const bean = makeBean();
+
+			expect(bean.equals(bean.id)).toBe(false);
+			expect(bean.equals(null)).toBe(false);
+			expect(bean.equals(undefined)).toBe(false);
+			expect(bean.equals(bean.toJSON())).toBe(false);
+		});
+
+		it("is true for the very same instance", () => {
+			const bean = makeBean();
+
+			expect(bean.equals(bean)).toBe(true);
+		});
+	});
+
+	describe("sameStateAs", () => {
+		it("ignores the identity fields entirely", () => {
+			const one = makeBean();
+			const other = makeBean();
+
+			expect(one.id).not.toBe(other.id);
+			expect(one.equals(other)).toBe(false);
+			expect(one.sameStateAs(other)).toBe(true);
+		});
+
+		it("turns false once a blueprint key actually changes", () => {
+			const row = { ...IDENTITY, name: "alan", slug: "hello-world" };
+			const before = Bean.fromJSON(row);
+			const after = Bean.fromJSON(row);
+
+			expect(before.sameStateAs(after)).toBe(true);
+
+			after.set("name", "reis");
+
+			expect(before.sameStateAs(after)).toBe(false);
+		});
+
+		it("stays true across a no-op set, which stamps nothing", () => {
+			const row = { ...IDENTITY, name: "alan", slug: "hello-world" };
+			const before = Bean.fromJSON(row);
+			const after = Bean.fromJSON(row);
+
+			expect(after.set("name", "alan")).toBe(false);
+			expect(before.sameStateAs(after)).toBe(true);
+		});
+
+		/**
+		 * The rule worth pinning: a nested entity is compared by its **id**, so
+		 * the post holds an author reference, not an author snapshot. Renaming
+		 * that author is a change to the author, not to the post.
+		 */
+		it("compares a nested entity by its id, not by its state", () => {
+			const row = makePost().toJSON();
+			const post = Post.fromJSON(row);
+			const renamed = Post.fromJSON({
+				...row,
+				author: { ...row.author, name: "outro" },
+			});
+
+			expect(post.sameStateAs(renamed)).toBe(true);
+		});
+
+		it("is false when the nested entity is a different one", () => {
+			const row = makePost().toJSON();
+			const post = Post.fromJSON(row);
+			const replaced = Post.fromJSON({
+				...row,
+				author: { ...row.author, id: IDENTITY.id },
+			});
+
+			expect(post.sameStateAs(replaced)).toBe(false);
+		});
+
+		it("is false for a subclass, in both directions", () => {
+			class Sprout extends Bean {}
+
+			const base = makeBean();
+			const derived = new Sprout({ name: "alan", slug: "hello-world" });
+
+			expect(base.sameStateAs(derived)).toBe(false);
+			expect(derived.sameStateAs(base)).toBe(false);
+		});
+
+		it("is false for anything that is not an entity", () => {
+			const bean = makeBean();
+
+			expect(bean.sameStateAs(null)).toBe(false);
+			expect(bean.sameStateAs(bean.toJSON())).toBe(false);
+		});
+
+		/**
+		 * An `optionalVO` key that resolved to nothing still holds a value
+		 * object — one wrapping `undefined` — so it compares like every other
+		 * key rather than through an absence branch.
+		 */
+		it("compares an omitted optional key against another omitted one", () => {
+			const one = new Note({ title: "primeiro", deletedAt: null });
+			const other = new Note({ title: "primeiro", deletedAt: null });
+			const filled = new Note({
+				title: "primeiro",
+				body: "corpo",
+				deletedAt: null,
+			});
+
+			expect(one.sameStateAs(other)).toBe(true);
+			expect(one.sameStateAs(filled)).toBe(false);
+			expect(filled.sameStateAs(one)).toBe(false);
+		});
+	});
+
+	describe("reserved member names", () => {
+		it("rejects a blueprint key called equals", () => {
+			const collidingProperties = { equals: StringVO };
+
+			class CollidingEquals extends Entity<typeof collidingProperties> {
+				protected defineEntity(): EntityDefinition<typeof collidingProperties> {
+					return {
+						properties: collidingProperties,
+						source: "colliding-equals",
+					};
+				}
+			}
+
+			try {
+				new CollidingEquals({ equals: "boom" });
+				expect.unreachable("should have thrown");
+			} catch (error) {
+				expect(error).toBeInstanceOf(PropertyNameCollisionException);
+				expect((error as PropertyNameCollisionException).property).toBe(
+					"equals",
+				);
+			}
+		});
+
+		it("rejects a blueprint key called sameStateAs", () => {
+			const collidingProperties = { sameStateAs: StringVO };
+
+			class CollidingState extends Entity<typeof collidingProperties> {
+				protected defineEntity(): EntityDefinition<typeof collidingProperties> {
+					return { properties: collidingProperties, source: "colliding-state" };
+				}
+			}
+
+			expect(() => new CollidingState({ sameStateAs: "boom" })).toThrow(
+				PropertyNameCollisionException,
 			);
 		});
 	});

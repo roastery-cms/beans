@@ -1,9 +1,11 @@
 import { StringVO } from "@/domain/collections/value-objects";
-import { DomainEvent } from "@/domain/domain-event";
+import { DomainEvent, defineDomainEvent } from "@/domain/domain-event";
 import { Entity } from "@/domain/entity";
+import { blueprint, entityOf } from "@/domain/entity/helpers";
 import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
 import type { InputValueOf } from "@/domain/entity/types/input-value-of.type";
 import type { InputValuesOf } from "@/domain/entity/types/input-values-of.type";
+import { SafeJson } from "@roastery/terroir/symbols";
 import { describe, expect, it } from "bun:test";
 import { emit } from "./emit.decorator";
 import { fromClass } from "./helpers/from-class";
@@ -429,5 +431,95 @@ describe("method decorators", () => {
 		const user = new User({ name: "Alan" });
 
 		expect(user.promoteTwice.name).toBe("promoteTwice");
+	});
+});
+
+const cardShape = { name: StringVO };
+
+const Created = defineDomainEvent("card.created", cardShape);
+const Updated = defineDomainEvent("card.updated", cardShape);
+const Deleted = defineDomainEvent("card.deleted", cardShape);
+const Promoted = defineDomainEvent("card.promoted", cardShape);
+const Audited = defineDomainEvent("card.audited", SafeJson);
+
+@onCreate(Created)
+@onUpdate(Updated)
+@onDelete(Deleted)
+class Card extends entityOf({ name: StringVO }, "card") {
+	@emit(Promoted)
+	public promote(): void {}
+
+	@emit(Audited)
+	public audit(): void {}
+
+	public rename(name: string): void {
+		this.set("name", name);
+	}
+}
+
+describe("decorators with a payload-carrying event", () => {
+	it("takes the class with no second argument — the declaration is on the event", () => {
+		const card = new Card({ name: "Ada" });
+
+		expect(card.pullDomainEvents()[0]?.payload).toEqual({ name: "Ada" });
+	});
+
+	it("cuts at the lifecycle instant, not at declaration time", () => {
+		const card = new Card({ name: "Ada" });
+
+		card.pullDomainEvents();
+		card.rename("Grace");
+
+		expect(card.pullDomainEvents()[0]?.payload).toEqual({ name: "Grace" });
+	});
+
+	it("cuts a fully built entity on onCreate, derived keys included", () => {
+		const Registered = defineDomainEvent("slugged.registered", {
+			name: StringVO,
+			label: StringVO,
+		});
+
+		@onCreate(Registered)
+		class Slugged extends entityOf(
+			blueprint({ name: StringVO, label: StringVO }).with({
+				label: { derive: (raw) => `label-${String(raw.name)}` },
+			}),
+			"slugged",
+		) {}
+
+		const slugged = new Slugged({ name: "Ada" });
+
+		expect(slugged.pullDomainEvents()[0]?.payload).toEqual({
+			name: "Ada",
+			label: "label-Ada",
+		});
+	});
+
+	it("cuts after the method ran, on emit", () => {
+		const card = new Card({ name: "Ada" });
+
+		card.pullDomainEvents();
+		card.promote();
+
+		expect(card.pullDomainEvents()[0]?.payload).toEqual({ name: "Ada" });
+	});
+
+	it("honours the SafeJson directive on a method decorator", () => {
+		const card = new Card({ name: "Ada" });
+		const safe = card.toSafeJSON();
+
+		card.pullDomainEvents();
+		card.audit();
+
+		expect(card.pullDomainEvents()[0]?.payload).toEqual(safe);
+	});
+
+	it("cuts before destroy took effect, on onDelete", () => {
+		const card = new Card({ name: "Ada" });
+
+		card.pullDomainEvents();
+		card.destroy();
+
+		expect(card.pullDomainEvents()[0]?.payload).toEqual({ name: "Ada" });
 	});
 });

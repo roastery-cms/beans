@@ -16,6 +16,7 @@
  * - {@link IRawEntity} — the serialized identity fields.
  * - {@link PropertiesShapeBase} — the base constraint of every blueprint.
  * - {@link PropertyRule} — the domain rule behind one blueprint property.
+ * - {@link RawContextExcept} — a construction payload minus the keys an owning aggregate supplies.
  * - {@link RawContextOf} — the constructor payload of a subclass.
  * - {@link ReshapableModel} — what `reshapeTo` accepts as its source.
  * - {@link ReshapeShapeBase} — the base constraint of every `reshapeTo` target.
@@ -34,6 +35,7 @@ export type { EntityHasShapeBase } from "./entity-has-shape-base.type";
 export type { IEntity } from "./entity.interface";
 export type { PropertiesShapeBase } from "./properties-shape-base.type";
 export type { PropertyRule } from "./property-rule.type";
+export type { RawContextExcept } from "./raw-context-except.type";
 export type { RawContextOf } from "./raw-context-of.type";
 export type { IRawEntity } from "./raw-entity.interface";
 export type { ReshapableModel } from "./reshapable-model.type";

@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 It is an **operational brief**: the rules you need to avoid writing wrong code. The reasoning behind
 closed decisions lives in `docs/decisions/*.md`; per-pillar know-how lives in `.claude/skills/*/SKILL.md`
 and is loaded on demand. Read `README.md` first — it stays in sync with the API and shows the canonical
-subclass patterns. `CHANGELOG.md` follows Keep a Changelog and is updated manually per release.
+subclass patterns. `CHANGELOG.md` follows Keep a Changelog and is updated manually per release: an
+entry carries **the fact and the migration**, and links the `docs/decisions/*.md` that carries the why.
 
 ## Project
 
@@ -53,8 +54,8 @@ One line per pillar; the skill named at the end of a line carries that pillar's 
   `beans-entity-decorators`.
 - `record/` — `DomainRecord`: an `Entity` minus identity, *with* mutation. Skill `beans-domain-modeling`.
 - `value-object/` — the `ValueObject` base, `metaOf`, its types. Skill `beans-domain-modeling`.
-- `domain-event/` — `DomainEvent`, `defineDomainEvent`, `IDomainEvent`. Its own pillar, not nested under
-  `entity/`. Skill `beans-domain-events`.
+- `domain-event/` — `DomainEvent`, `defineDomainEvent`, `IDomainEvent`, plus `helpers/validatePayload`.
+  Its own pillar, not nested under `entity/`. Skill `beans-domain-events`.
 - `wrapper/` — `arrayOf`, `optionalOf`, `nullableOf`. Skill `beans-wrappers`.
 - `repository/` — **`repository/types/` only, type-only, no `index.ts` at the pillar root**: `RepositoryOf`
   and the nine `ICan*` contracts. Skill `beans-repository-port`.
@@ -133,14 +134,29 @@ Silent or hard-to-diagnose failures. Each one has bitten this repo.
 - **Never type-check a scratch file whose name starts with a dot.** TypeScript's default `include`
   (`**/*`) does not match dotfiles, so `tsc --noEmit` exits 0 while ignoring `.probe.ts`. Use a plain
   name and delete it afterwards.
-- **A blueprint key may not collide with an existing member** (`schema`, `toJSON`, `get`, `set`, `id`, …)
-  — `PropertyNameCollisionException`, checked atomically before anything is defined. A record blueprint
-  may additionally not name `id`/`createdAt`/`updatedAt`; an entity blueprint never declares them at all.
+- **A blueprint key may not collide with an existing member** (`schema`, `toJSON`, `get`, `set`, `id`,
+  `equals`, …) — `PropertyNameCollisionException`, checked atomically before anything is defined. The
+  check is `key in prototype`, and the three pillars are three **unrelated** prototype chains, so a
+  member reserves its name only in the pillar that declares it: `equals` in `Entity` and
+  `DomainRecord`, `sameStateAs` in `Entity` only. `Command` shares `installAccessors` but reserves
+  neither — it has no `equals`, so a command blueprint may name the key. A record blueprint may
+  additionally not name `id`/`createdAt`/`updatedAt`; an entity blueprint never declares them at all.
 - **Mixin and method-decorator shapes have fixed requirements** (`any[]` rest parameter, `abstract class
   Decorated`, `const replacement: typeof target = function …`, `target.apply(this, args)`) — see skill
   `beans-entity-decorators` before touching `decorators/`.
+- **An event's payload shape is an allowlist, and nothing in it is redacted.** The cut comes from
+  `toJSON()`, never `toSafeJSON()`, so a `sensitive` key *named in a shape* crosses the bus in the
+  clear — leaving it out is how it stays out. `SafeJson` is the redacting form, and a redacted payload
+  does **not** round-trip through `fromJSON`: consumption and audit only, never hydration.
+- **An event's payload is never a blueprint-driven instance.** `raiseEvent` buffers with
+  `{ ...built, … }` and `installAccessors` puts accessors on the *prototype*, `enumerable: false` — a
+  `Command`-shaped event would lose its whole payload in that spread, in silence. The class only
+  declares `static readonly payload`; the value is resolved from the entity into the buffered DTO.
 
-> Detail: [typescript-traps.md](docs/decisions/typescript-traps.md) ·
+> Detail: [equality-per-pillar.md](docs/decisions/equality-per-pillar.md) ·
+> [adoption-over-rebuild.md](docs/decisions/adoption-over-rebuild.md) ·
+> [event-payload.md](docs/decisions/event-payload.md) ·
+> [typescript-traps.md](docs/decisions/typescript-traps.md) ·
 > [decorator-mixin-traps.md](docs/decisions/decorator-mixin-traps.md) ·
 > [transactional-boundary.md](docs/decisions/transactional-boundary.md) ·
 > [removed-features.md](docs/decisions/removed-features.md)
@@ -166,7 +182,8 @@ class StringVO extends ValueObject<string, typeof StringSchema> {
 - `transform()` normalises before validation and **never runs over defaults** — declare them canonical.
 - `meta.unique` is declarative; nothing in the domain enforces it. Only `sensitive: true` on a VO
   suppresses repository methods; a per-aggregate `sensitive: [...]` list redacts but does not.
-- Subclassing a VO inherits everything, *including* the parent's lack of constraints.
+- Subclassing a VO inherits everything, *including* the parent's lack of constraints — but **not**
+  equality: `equals` compares by value *and* by exact class, so a subclass never equals its parent.
 
 ### Entity
 
@@ -186,10 +203,15 @@ class Author extends entityOf(authorProperties, "author") {
 - `new X(row)` ignores unknown keys; **`X.fromJSON(row)` validates the whole payload** and rejects extra
   and missing keys — use it for untrusted origin. `X.demo()` is the entry point without data.
 - `raiseEvent` is `protected` and stamps `occurredAt`/`aggregateId` itself; `pullDomainEvents()` is
-  **shallow by default** — pass `{ deep: true }` whenever a nested entity, record or wrapper may hold
-  events. `beans` ships no dispatcher.
+  **deep by default** — it drains the root's buffer, then every nested entity, record and wrapper.
+  `{ deep: false }` restricts it to the root's own. `beans` ships no dispatcher.
 - Transient state goes in `[Storage]`, domain state in the blueprint. `destroy()` is a marker, not a
   guard. `isUnique(key)` reports the declaration and must never become async.
+- **`equals` is identity (`id`), `sameStateAs` is the blueprint keys** — never `deepEquals` over
+  `toJSON()`, which folds in `createdAt`/`updatedAt`. Both check the exact prototype, not `instanceof`,
+  so the relation stays symmetric and a subclass never equals its parent — **while adoption tests
+  `instanceof` and takes that same subclass in**, which is the one place the two rulers disagree.
+  `sameStateAs` delegates per key, so **a nested entity compares by its `id`**, not by its state.
 - `blueprint(shape).with(rules)` attaches `{ default }` or `{ derive }` (mutually exclusive); resolution
   is explicit value > `default` > `derive`, rules apply in `demo()` and **never re-fire on `set`**. A
   rule-less blueprint closes with `.done()`, never `.with({})`.
@@ -207,8 +229,9 @@ class Money extends recordOf({ amount: IntegerVO, currency: StringVO }, "money")
 ```
 
 - An `Entity` minus identity, *with* mutation. No `[Events]`/`raiseEvent`, no `[Storage]`, no
-  `destroy()`, no `unique`; `pullDomainEvents` only forwards the deep form.
+  `destroy()`, no `unique`; `pullDomainEvents` exists purely to forward the walk into what it nests.
 - No `updatedAt` stamp, so `setMany`'s **`boolean` return is the only signal that anything changed**.
+- `equals` is `Entity.sameStateAs`'s body — a record has no identity, so by-value *is* its equality.
 - The lifecycle and method decorators do not apply — nothing guards this at runtime.
 
 ### Command
@@ -241,6 +264,29 @@ class CreateUser extends defineUseCase<typeof props, Deps, User>(props, "create-
   `inMemoryTransactionOf(...repositories)` (`@/testing`) is the runner that actually rolls back — rows
   only, never entities, and **one transaction at a time** (an overlapping `run` throws).
 
+### DomainEvent
+
+```ts
+const OrderShipped = defineDomainEvent("order.shipped", { code: StringVO, to: Address });
+const OrderAudited = defineDomainEvent("order.audited", SafeJson); // or Json, or nothing
+```
+
+- **A payload is opt-in, and declared on the event class only.** `@onCreate`/`@onUpdate`/`@onDelete`/
+  `@emit` take **no** second argument — they read `static readonly payload` off the class they already
+  receive, structurally (like `transactional`). A second declaration site would diverge in silence.
+- Three forms: a **shape** → `reshapeTo(shape, entity)` with the root's identity dropped
+  (`aggregateId` has it; nested identity stays, which is what makes it hydratable); **`Json`** →
+  `entity.toJSON()`; **`SafeJson`** → `entity.toSafeJSON()`. Omitted → no `payload` key at all.
+- **Only the shape form gets `fromJSON`** — `Json`/`SafeJson` carry a whole serialization and the event
+  class does not know which entity raised it, so there is nothing static to check. That asymmetry is
+  the argument for preferring a shape.
+- **A payload shape is classes only** (a valid blueprint), never a `reshapeShape` with an anonymous
+  nested target: the same object is the cut's target *and* the validator's blueprint.
+- **A payload-carrying event is still `BareDomainEventClass`** — the payload comes from the entity, not
+  the constructor, so `new (aggregateId: string)` is unchanged and `raiseEvent(X)` still takes it bare.
+- `defineDomainEvent` at module scope, once; annotate the return (TS4060). `validatePayload` (the
+  pillar's `helpers/`) is the same check without an event class in hand.
+
 ### Multiplicity wrappers
 
 ```ts
@@ -248,10 +294,17 @@ const postProperties = blueprint({ tags: arrayOf(PostTag), author: optionalOf(Au
 ```
 
 - Reads are unwrapped and there is no `.add()`: appending replaces the whole list through `set`, passing
-  existing items back **through `toJSON()`** so their `id`s survive.
+  the existing items back **as they are** — a value that is already an instance of the blueprint class is
+  **adopted, not rebuilt**, at every build site, which is what keeps identity, state and buffered events.
+  A serialized payload (`toJSON()`) still rebuilds, and still mints an identity when it carries none.
+  **Adoption tests `instanceof`, so it accepts a subclass that `equals` will then refuse** — the one
+  seam where the two rulers point opposite ways, and the price is aliasing.
 - `optionalOf` and `nullableOf` are not interchangeable — only `optionalOf` makes a key omittable.
 - A wrapper never wraps a wrapper; a wrapped key derives no repository method; `demo()` yields an empty
   container.
+- `equals` compares item by item, **in order**, behind two guards: `instanceof Wrapper` against the class
+  that call minted — which is what makes the private `#items` readable at all — and the exact prototype,
+  which is what stops a subclass of the container from comparing equal.
 
 ## Shape questions
 

@@ -65,6 +65,12 @@ export interface IEntity<
 	/** JSON-string form of {@link IEntity.toSafeJSON} — safe to log. */
 	toString(): string;
 
+	/** Whether another value is this same entity: the exact same class, holding the same `id`. State plays no part. */
+	equals(other: unknown): boolean;
+
+	/** Whether another entity of the same class holds the same state: one comparison per blueprint key, identity excluded. A nested entity compares by its `id`. */
+	sameStateAs(other: unknown): boolean;
+
 	/** Reads one key: identity string, nested entity/record instance, or wrapped raw value. */
 	get<Key extends ReadableKey<PropertiesShape>>(
 		key: Key,

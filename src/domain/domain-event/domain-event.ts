@@ -52,6 +52,26 @@ export abstract class DomainEvent implements IDomainEvent {
 	public readonly aggregateId: string;
 
 	/**
+	 * What the raising entity contributed, when the event class declared a
+	 * `static readonly payload`.
+	 *
+	 * @remarks
+	 * `declare`, so it emits nothing: a constructed `DomainEvent` genuinely does
+	 * not carry it. The key appears on the **buffered** form — `raiseEvent`
+	 * resolves the declaration against the raising entity and puts the result
+	 * there — which is the shape an `IEventEmitter` publishes and a reaction's
+	 * `handle` receives, and the shape this type has always described (the
+	 * buffer holds plain objects, never instances, which is why `.on()` matches
+	 * by `name` and never by `instanceof`).
+	 *
+	 * Narrow it with the event class's own `fromJSON`, which exists on the shape
+	 * form precisely because that is the only form with something to check.
+	 *
+	 * @see `eventPayloadOf` in `@roastery/beans/domain/entity/helpers` — what fills it in.
+	 */
+	public declare readonly payload?: unknown;
+
+	/**
 	 * Declares the event's stable, dot-namespaced name (e.g.
 	 * `"order.confirmed"`).
 	 *

@@ -17,4 +17,23 @@ export interface IDomainEvent {
 
 	/** The raising entity's own `id`, stamped by the base — the "thin" floor every event carries. */
 	readonly aggregateId: string;
+
+	/**
+	 * What the raising entity contributed, when the event class declared a
+	 * `static readonly payload`. Absent otherwise — a payload is always opt-in.
+	 *
+	 * @remarks
+	 * Typed `unknown` on purpose: three declaration forms produce three shapes
+	 * (a cut against a payload shape, `entity.toJSON()`, `entity.toSafeJSON()`),
+	 * and only the first has a static format. Narrow it with the event class's
+	 * own `fromJSON` — which exists only on the shape form, since only that one
+	 * has something to check against.
+	 *
+	 * The root's identity is **not** here: `aggregateId` already carries the
+	 * raising entity's `id`. A nested aggregate keeps its own, which is what
+	 * makes the payload hydratable one level down.
+	 *
+	 * @see `eventPayloadOf` in `@roastery/beans/domain/entity/helpers` — what fills this in.
+	 */
+	readonly payload?: unknown;
 }

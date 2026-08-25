@@ -3,6 +3,7 @@ import type { WrappableClass } from "@/domain/entity/types/wrappable-class.type"
 import { metaOf } from "@/domain/value-object/helpers";
 import { isValueObject } from "@/shared/helpers/is-value-object";
 import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
+import { propertyEquals } from "@/shared/helpers/property-equals";
 import { rawOf } from "@/shared/helpers/raw-of";
 import { redactedValue } from "@/shared/redaction/redaction-config";
 import type { ISensitiveKey } from "@/shared/redaction/sensitive-keys-of";
@@ -216,21 +217,64 @@ export function defineWrapper<
 		}
 
 		/**
-		 * Forwards a deep domain-event drain to each item, in order. The
-		 * shallow form always returns `[]`: a wrapper has no buffer and never
-		 * raises.
+		 * Whether another container **holds the same contents**: the same
+		 * number of items, each equal to the item at the same index. Order is
+		 * part of the answer for an `arrayOf`, exactly as it is for
+		 * `deepEquals` over a list — a wrapper is a sequence, not a set.
+		 *
+		 * Each item answers with its own pillar's rule, because each item
+		 * delegates to its own `equals`: a wrapped value-object compares by
+		 * value, a wrapped record by its properties, and a **wrapped entity by
+		 * its id**. Comparing `toJSON()` instead would fold the identity
+		 * fields of every wrapped entity into the answer.
+		 *
+		 * The type check is two guards, and each buys something the other
+		 * does not. `instanceof Wrapper`, against the class this very call
+		 * minted, is what makes `other.#items` **readable at all**: a private
+		 * field is only legible from instances of the class that declares it,
+		 * so without it a container from a *different* `arrayOf(Tag)` call
+		 * would throw a `TypeError` instead of answering `false`. The exact
+		 * prototype check is what makes this the same "exact class" rule the
+		 * three bases apply — `instanceof` alone would accept a subclass of
+		 * the minted container, where every other `equals` in the package
+		 * refuses one. The corollary is the one already stated above: call the
+		 * factory once, at module scope.
+		 *
+		 * @param other - Anything. A non-wrapper, a wrapper minted by another
+		 *   call, and a subclass of this one are all simply not equal.
+		 * @returns `true` when both hold the same items, in the same order.
+		 */
+		public equals(other: unknown): boolean {
+			if (!(other instanceof Wrapper)) return false;
+			if (Object.getPrototypeOf(this) !== Object.getPrototypeOf(other))
+				return false;
+
+			const mine = this.#items;
+			const theirs = other.#items;
+
+			return (
+				mine.length === theirs.length &&
+				mine.every((item, index) => propertyEquals(item, theirs[index]))
+			);
+		}
+
+		/**
+		 * Forwards a domain-event drain to each item, in order. The restricted
+		 * form (`{ deep: false }`) always returns `[]`: a wrapper has no buffer
+		 * and never raises.
 		 *
 		 * Without the forward, an entity inside an `arrayOf` would keep its
 		 * events forever — the one failure in this feature that would be
 		 * completely silent.
 		 *
-		 * @param options - `deep: true` walks into the items.
+		 * @param options - `deep: false` stops the walk; omitted or `true`
+		 *   walks into the items.
 		 * @returns The drained events, or `[]`.
 		 */
 		public pullDomainEvents(options?: {
 			readonly deep?: boolean;
 		}): readonly IDomainEvent[] {
-			if (options?.deep !== true) return [];
+			if (options?.deep === false) return [];
 
 			return this.#items.flatMap((item) =>
 				isValueObject(item)

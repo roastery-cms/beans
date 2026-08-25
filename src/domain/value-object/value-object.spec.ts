@@ -1,4 +1,8 @@
-import { SlugSchema, StringSchema } from "@/domain/collections/schemas";
+import {
+	SlugSchema,
+	StringArraySchema,
+	StringSchema,
+} from "@/domain/collections/schemas";
 import slugify from "slugify";
 import { ValueObject } from "@/domain/value-object";
 import { metaOf } from "@/domain/value-object/helpers";
@@ -220,6 +224,98 @@ describe("ValueObject (v2)", () => {
 
 			expect(metaOf(Careful).sensitive).toBe(true);
 			expect(metaOf(DefinedStringVO).sensitive).toBeUndefined();
+		});
+	});
+
+	describe("equals", () => {
+		it("is true for the same class holding the same value", () => {
+			expect(
+				new DefinedStringVO("alan", context).equals(
+					new DefinedStringVO("alan", context),
+				),
+			).toBe(true);
+		});
+
+		it("ignores the context the two were built under", () => {
+			expect(
+				new DefinedStringVO("alan", context).equals(
+					new DefinedStringVO("alan", { name: "author", source: "post" }),
+				),
+			).toBe(true);
+		});
+
+		it("is false for a different value", () => {
+			expect(
+				new DefinedStringVO("alan", context).equals(
+					new DefinedStringVO("reis", context),
+				),
+			).toBe(false);
+		});
+
+		it("is false for a subclass holding the same value, in both directions", () => {
+			class Nickname extends DefinedStringVO {}
+
+			const base = new DefinedStringVO("alan", context);
+			const derived = new Nickname("alan", context);
+
+			expect(base.equals(derived)).toBe(false);
+			expect(derived.equals(base)).toBe(false);
+		});
+
+		it("is false for another class holding the same value", () => {
+			expect(
+				new DefinedStringVO("slug", context).equals(
+					new SlugVO("slug", context),
+				),
+			).toBe(false);
+		});
+
+		it("is false for anything that is not a value object", () => {
+			const vo = new DefinedStringVO("alan", context);
+
+			expect(vo.equals("alan")).toBe(false);
+			expect(vo.equals(null)).toBe(false);
+			expect(vo.equals(undefined)).toBe(false);
+			expect(vo.equals({ value: "alan" })).toBe(false);
+		});
+
+		it("compares a composite value structurally, not by reference", () => {
+			class Tags extends ValueObject<string[], typeof StringArraySchema> {
+				protected defineMeta(): IValueObjectMetadata<
+					string[],
+					typeof StringArraySchema
+				> {
+					return { default: [], schema: StringArraySchema };
+				}
+			}
+
+			expect(
+				new Tags(["a", "b"], context).equals(new Tags(["a", "b"], context)),
+			).toBe(true);
+
+			expect(
+				new Tags(["a", "b"], context).equals(new Tags(["b", "a"], context)),
+			).toBe(false);
+		});
+
+		it("compares the real value of a sensitive class", () => {
+			class Secret extends ValueObject<string, typeof StringSchema, true> {
+				protected defineMeta(): IValueObjectMetadata<
+					string,
+					typeof StringSchema,
+					true
+				> {
+					return { default: "secret", schema: StringSchema, sensitive: true };
+				}
+			}
+
+			expect(
+				new Secret("hunter2", context).equals(new Secret("hunter2", context)),
+			).toBe(true);
+
+			expect(
+				new Secret("hunter2", context).equals(new Secret("hunter3", context)),
+			).toBe(false);
 		});
 	});
 });

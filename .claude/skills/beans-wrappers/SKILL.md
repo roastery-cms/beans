@@ -23,8 +23,9 @@ constructs one item by the inner class's own kind, and `wrapperModelFor` derives
 5. **`get` unwraps and is tested *before* `isValueObject`** — a wrapper is a container.
 6. **A wrapped key derives no repository method**, on both doors (`RepositoryFilterKeysOf` and
    `filterKeysOf`'s positive `isValueObjectClass` test).
-7. **`pullDomainEvents({ deep: true })` must keep forwarding into the contents** — without it an entity
-   inside an `arrayOf` keeps its events forever, the one completely silent failure in this feature.
+7. **`pullDomainEvents()` must keep forwarding into the contents** — without it an entity inside an
+   `arrayOf` keeps its events forever, the one completely silent failure in this feature. Only
+   `{ deep: false }` stops the walk.
 
 `arrayOf(inner)`, `optionalOf(inner)` and `nullableOf(inner)` take one blueprint class and return another
 holding many of it, optionally one, or one-or-`null`.
@@ -38,8 +39,10 @@ post.tags[0].rename("Bob"); // the item's verbs stay reachable
 
 - **Construction relaxes item by item**, because `InputValueOf` is the same type either way.
 - **Reads are unwrapped, and there is no `.add()`.** A wrapper states a multiplicity, it does not become a
-  domain concept. Appending replaces the whole list through `set`, passing the existing items back
-  **through `toJSON()`**, which is what preserves their `id`s; omitting an item's identity mints a new one.
+  domain concept. Appending replaces the whole list through `set`, passing the existing items back **as they
+  are**: `buildItem` adopts a value that is already an instance of the wrapped class (`isBuiltInstance`)
+  instead of rebuilding it, which is what preserves each item's `id`, its state and its buffered events. A
+  **serialized** item still rebuilds, and omitting its identity there mints a new one.
 - **`optionalOf` and `nullableOf` are not interchangeable** — only `optionalOf` reaches
   `UndefinedableKeys` and drops its key out of the schema's `required`.
 - **`demo()` yields an empty container** (`[]`/`undefined`/`null`).
@@ -63,10 +66,20 @@ post.tags[0].rename("Bob"); // the item's verbs stay reachable
   `t.TNull`), mirroring `wrapperModelFor`. `CommandSchemaOf` reaches the same type through
   `CommandPropertySchemaOf`. Before those existed a wrapped key typed as `never` while the runtime was
   correct — the quiet kind of wrong, and the shape to check for in any new mapped type over a blueprint.
+- **`equals` compares the contents item by item, in order**, delegating each item to its own `equals`
+  through `propertyEquals` — so a wrapped entity compares by its `id`, never by its state, and never
+  through `toJSON()`. The guard is `other instanceof Wrapper` against the class *that* `defineWrapper` call
+  minted: the same "exact class" rule the three bases apply, and also what makes the private `#items`
+  readable at all. Without it, a container from a different `arrayOf(Tag)` call would throw a `TypeError`
+  instead of answering `false`. Note this is **stricter than `entityHas`'s two-statics comparison below**,
+  and deliberately so — that asks whether a class satisfies a contract, this asks whether two containers
+  are the same thing. The method is declared on `IWrapper`, or it exists at runtime and vanishes from the
+  `.d.ts`.
 - **`entityHas`/`EntityHas` compare a wrapper by its two statics**, never by identity: every `arrayOf(X)`
   call mints a fresh class. Multiplicity is part of the shape there — `{ tags: PostTag }` does not match
   `tags: arrayOf(PostTag)`.
 
 > Detail: [wrapper-type-constraints.md](../../../docs/decisions/wrapper-type-constraints.md)
+> · [equality-per-pillar.md](../../../docs/decisions/equality-per-pillar.md)
 > · [typescript-traps.md](../../../docs/decisions/typescript-traps.md)
 > · siblings: skills `beans-domain-modeling`, `beans-repository-port`

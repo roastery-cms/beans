@@ -139,6 +139,14 @@ circular import. Nothing in a command's construction machinery needs to import `
 `PropertyRule`, `RuledBlueprint` and `BlueprintBuilder` are imported straight from `@/domain/entity`;
 `readDefinition` and the `Command*`-prefixed blueprint types are duplicated on purpose.
 
+Sharing `installAccessors` does **not** mean sharing the other pillars' reserved blueprint keys, which is
+the natural wrong guess. Its test is `key in prototype`, and `Entity`, `DomainRecord` and `Command` are
+three unrelated prototype chains — so a command reserves only its **own** members (`schema`, `toJSON`,
+`toString`, `get`, `execute`, the slot symbols). `equals` is not among them: `Command` deliberately
+implements none — it is an input DTO, has no identity, and its `toJSON` redacts — and therefore a command
+blueprint may name the key. No per-pillar reserved-name list is needed, because the prototype already is
+one. See `docs/decisions/equality-per-pillar.md`; `command.spec.ts` pins the behaviour.
+
 > Detail: [transactional-boundary.md](../../../docs/decisions/transactional-boundary.md)
 > · [exception-layer-split.md](../../../docs/decisions/exception-layer-split.md)
 > · [redaction-asymmetry.md](../../../docs/decisions/redaction-asymmetry.md)

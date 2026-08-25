@@ -117,7 +117,7 @@ It stops where the opinions start, on purpose:
 - **No `Result`/`Either`.** Invalid data throws a specific, typed exception (`InvalidPropertyException`, `ImmutablePropertyException`, `IncompleteIdentityException`, …), each carrying the property and the source.
 - **No *production* repository, no Unit of Work, no ORM integration.** The `repository` pillar ships the *contract* and nothing else: `RepositoryOf` and the `ICan*` capability types are 100% type-only — no factory, no symbol, no runtime, not one byte emitted. `toJSON`/`fromJSON` are still the persistence boundary, and the adapter on the other side is still yours to write. The one implementation that does ship is `inMemoryRepositoryOf`, and it lives behind `@roastery/beans/testing` precisely so it can't be mistaken for one.
 - **No DI container.** `commands` only gates access to a fixed, once-supplied dependency record at compile time — it doesn't resolve, construct, or scope dependencies for you.
-- **No event bus and no dispatcher.** `raiseEvent` buffers, `pullDomainEvents` drains, `collectDomainEvents` hands the array to a `Command`'s caller. Publishing is the application's call.
+- **No event bus and no dispatcher.** `raiseEvent` buffers, `pullDomainEvents` drains, `collectDomainEvents` hands the array to a `Command`'s caller. Publishing is the application's call — but an event can [declare what it carries](#declaring-what-an-event-carries), so what crosses the bus is validated on both ends.
 - **No query side.** `Command` is the write path only.
 
 Where those choices have consequences a caller can actually run into, they are gathered in [Known limits](#known-limits) rather than left scattered across the sections that introduce them.
@@ -127,7 +127,7 @@ Where those choices have consequences a caller can actually run into, they are g
 - **Entity** *(domain)* — Blueprint-driven base class: validated construction, `toJSON`/`fromJSON`, atomic `set`/`setMany` with automatic `updatedAt` stamping, typed accessors, nested aggregates, a transient `[Storage]` slot, a domain-event buffer, and `destroy()`. `id` (UUID v7), `createdAt` and `updatedAt` come built in.
 - **DomainRecord** *(domain)* — An `Entity` **minus identity**: no `id`/`createdAt`/`updatedAt`, never a row, but everything else — blueprint-derived schema, strict hydration, `demo()`, blueprint rules, redaction, and `protected` `set`/`setMany`. For the composite domain values that deserve verbs (`Money`, `Address`, `DateRange`) instead of being flattened into a `customObjectVO`. Usable as a key of an entity, a command or another record.
 - **ValueObject** *(domain)* — Immutable, self-validating wrapper around a value. The subclass declares only `defineMeta()`; validation runs in the constructor.
-- **DomainEvent** *(domain)* — Optional abstract base for the events an `Entity` raises, plus `defineDomainEvent(name)` (a factory building a payload-less event class from just its name), three TC39 lifecycle decorators (`onCreate`, `onUpdate`, `onDelete`) that raise them automatically at a fixed point, and two TC39 method decorators (`emit`, `onError`) that raise them around an arbitrary instance method — `emit` once it has run to completion, `onError` when it throws.
+- **DomainEvent** *(domain)* — Optional abstract base for the events an `Entity` raises, plus `defineDomainEvent(name, payload?)` (a factory building an event class from its name, and optionally the payload it carries — a shape, `Json` or `SafeJson`), three TC39 lifecycle decorators (`onCreate`, `onUpdate`, `onDelete`) that raise them automatically at a fixed point, and two TC39 method decorators (`emit`, `onError`) that raise them around an arbitrary instance method — `emit` once it has run to completion, `onError` when it throws.
 - **Collections** *(domain, aliased under application)* — The Value Object / schema catalog and the custom factories described above.
 - **Command** *(application)* — Blueprint-driven base for orchestrating domain behaviour behind a validated input, resolving to a `CommandResult` (`{ result, events }`). **AggregateCommand** specializes it for a single-aggregate result: `execute()` comes already implemented, the subclass writes `handle()` instead.
 - **Repository** *(domain)* — Type-only ports derived from an entity's blueprint: `RepositoryOf<typeof User, Spec>` builds the contract an adapter implements, out of granular `ICan*` capabilities a use case asks for in its `Deps`. `findByEmail` exists only because the entity declares `email`. **inMemoryRepositoryOf** *(testing)* generates a working double for that same contract, from the same blueprint.
@@ -257,7 +257,7 @@ commands(spec, { transaction, emitter }).withDependencies(deps).on(Event, Handle
 | Declare properties + rules | `blueprint` | (same — always used either way) |
 | Model an entity | `entityOf` | `class X extends Entity<Shape>` + `defineEntity()` + interface merge |
 | A value | `@roastery/beans/way/collections/value-objects` (`StringVO`, `EmailVO`, `UuidVO`, …) + its `optional`/`nullable`/`custom` subpaths | same classes, same subpath either way |
-| A domain event | `defineDomainEvent` | `class X extends DomainEvent` + `defineName()` |
+| A domain event | `defineDomainEvent` | `class X extends DomainEvent` + `defineName()` (+ `static readonly payload`) |
 | A use case | `defineUseCase` | `AggregateCommand`/`aggregateCommandOf`/`Command` — reach here directly once a use case needs more than one aggregate as its result |
 | React to an event | `defineEventHandler` | `class X implements IEventHandler<Event, Deps>` |
 | Wire it all up | `commands` (`{ emitter }` opt-in: publishes + runs reactions) | (same — it already lives in `application`; `way` only shortens the path) |
@@ -487,14 +487,14 @@ order.pullDomainEvents();
 
 `pullDomainEvents()` is public: call it after a successful `repository.save(order)` to drain and dispatch the events. `beans` stops at the buffer — there is no event bus or dispatcher in this package, so what happens with the drained array is entirely up to the consuming application.
 
-By default it drains **only that entity's own buffer**. An event raised inside a nested entity stays there — a nested entity is a participant in the aggregate, not a second root. Pass `{ deep: true }` to drain the whole aggregate, root first, then each nested entity recursively:
+By default it drains **the whole aggregate**: the root's buffer first, then each nested entity, record and wrapper, recursively, in blueprint order. A nested entity is a participant in the aggregate, not a second root, so its events belong to the root's pull. Pass `{ deep: false }` to restrict the drain to the root's own buffer:
 
 ```typescript
-post.pullDomainEvents();               // only what Post itself raised
-post.pullDomainEvents({ deep: true }); // Post + its nested Author, recursively
+post.pullDomainEvents();                // Post + its nested Author, recursively
+post.pullDomainEvents({ deep: false }); // only what Post itself raised
 ```
 
-Reach for `deep` whenever a blueprint holds an entity carrying [lifecycle decorators](#lifecycle-decorators) — a decorated nested entity raises on its own construction, and a shallow pull would leave that event in a buffer nobody reads. `collectDomainEvents` (application layer) always pulls deep for exactly this reason.
+The default matters most when a blueprint holds an entity carrying [lifecycle decorators](#lifecycle-decorators) — a decorated nested entity raises on its own construction, and the old shallow default left that event in a buffer nobody read. `collectDomainEvents` (application layer) has always pulled deep for exactly this reason.
 
 For an event with its own payload fields, `DomainEvent` (its own pillar, `@roastery/beans/domain/domain-event`) is an optional abstract base that saves you from repeating the object literal at every call site. A subclass declares only `defineName()`; `occurredAt` is stamped automatically, and the constructor's only required argument is `aggregateId`:
 
@@ -565,7 +565,81 @@ class Order extends Entity<typeof orderProperties> {
 }
 ```
 
-Call it at module scope, once — the same rule the [custom value objects](#custom-value-objects) already follow: each call mints a fresh class, so two calls with the same name produce unrelated classes and `instanceof` does not relate them. An event with payload fields of its own — `OrderConfirmed` above — still needs the hand-written subclass; a constructor with extra required parameters isn't something a `(name: string) => Class` factory can produce.
+Call it at module scope, once — the same rule the [custom value objects](#custom-value-objects) already follow: each call mints a fresh class, so two calls with the same name produce unrelated classes and `instanceof` does not relate them.
+
+#### Declaring what an event carries
+
+An event can declare a payload with a second argument, and then the entity fills it in on its own. Three forms:
+
+```typescript
+import { defineDomainEvent } from "@roastery/beans/domain/domain-event";
+import { Json, SafeJson } from "@roastery/terroir/symbols";
+
+const OrderShipped = defineDomainEvent("order.shipped", { code: StringVO, to: Address });
+const OrderAudited = defineDomainEvent("order.audited", SafeJson);
+const OrderDumped  = defineDomainEvent("order.dumped", Json);
+const OrderPlain   = defineDomainEvent("order.plain");  // no payload — the default
+```
+
+| Second argument | What lands under `event.payload` | `fromJSON` |
+|---|---|---|
+| *(omitted)* | nothing — the key is absent entirely | — |
+| a **shape** | `reshapeTo(shape, entity)`, with the root's identity dropped | yes |
+| `Json` | `entity.toJSON()` — complete, unredacted | no |
+| `SafeJson` | `entity.toSafeJSON()` — every `sensitive` key masked | no |
+
+The declaration lives on the event class and nowhere else. The [lifecycle and method decorators](#lifecycle-decorators) take **no** second argument — they read the static off the class they already receive:
+
+```typescript
+@onCreate(OrderPlaced)
+class Order extends entityOf(orderProperties, "order") {
+  @emit(OrderShipped)
+  public ship(): void { /* ... */ }
+}
+
+const order = new Order({ code: "A1", token: "hunter2", to: { city: "SP" } });
+order.ship();
+
+order.pullDomainEvents()[1];
+// {
+//   name: "order.shipped",
+//   occurredAt: "2026-08-25T01:39:43.160Z",
+//   aggregateId: "01a03692-…",              // the root id lives here, not in the payload
+//   payload: { code: "A1", to: { id: "01a03692-…", createdAt: "…", city: "SP" } },
+// }
+```
+
+On the far side of a bus, the same class validates what arrived — one declaration, both ends:
+
+```typescript
+registry.on(OrderShipped, defineEventHandler<OrderShipped>(async (event) => {
+  const { code, to } = OrderShipped.fromJSON(event.payload); // throws InvalidDomainDataException on a mismatch
+}));
+```
+
+- **The shape is an allowlist, and nothing in it is redacted.** The cut comes from `toJSON()`, never `toSafeJSON()`, so the payload stays hydratable — which means a key marked `sensitive` and *named in a shape* goes onto the bus in the clear. Leaving it out of the shape is how it stays out, and that is the point of declaring one: a field nobody remembered to mark `sensitive` is still absent from a shape nobody added it to.
+- **`SafeJson` redacts, and so does not round-trip.** `Target.fromJSON(payload)` will not rebuild what `toSafeJSON` masked. That form is for consumption and audit, not hydration.
+- **Only the shape form gets `fromJSON`.** `Json` and `SafeJson` carry the raising entity's whole serialization, and an event class does not know which entity raised it — there is no static format to check an arrival against. The asymmetry is the argument for preferring a shape.
+- **The root's identity is dropped from a shape's cut** — `aggregateId` already carries it. A **nested** aggregate keeps its own, which is what lets the payload feed that aggregate's `fromJSON` one level down. `Json`/`SafeJson` keep everything, because the directive means *the entity's serialization*.
+- **A payload shape is classes only** — value objects, entities, records, wrappers. Unlike a [reshape target](#reshaping-onto-a-target-shape) it may not nest an anonymous shape (`{ author: { name: StringVO } }`), because the same object has to serve as both the target of the cut and the blueprint of the check, and an anonymous target carries no schema. Name the nested class instead.
+- **A payload-carrying event is still a bare class.** Its constructor is unchanged — `new (aggregateId: string)` — because the payload comes from the entity, not from the constructor. That is why every decorator accepts one, and why `this.raiseEvent(OrderShipped)` still works without `new`.
+- **The hand-written form declares the same static**, read structurally, and a subclass inherits it:
+
+```typescript
+class OrderShipped extends DomainEvent {
+  public static readonly payload = { code: StringVO, to: Address };
+
+  protected defineName(): string { return "order.shipped"; }
+}
+```
+
+An event whose *constructor* takes extra arguments — `OrderConfirmed` above — still needs the hand-written subclass, and is raised with `new`.
+
+There is a runnable walk-through of all three forms side by side — what each one carries, what identity survives a shape's cut, what `SafeJson` masks and what `Json` does not, and the two things the type system refuses — in `examples/testing-event-payload.ts`:
+
+```bash
+bun examples/testing-event-payload.ts
+```
 
 ### Destroying an entity
 
@@ -611,9 +685,9 @@ new User({ id, createdAt, name: "..." }); // raises nothing either — same rule
 - **`onCreate`** fires on a fresh construction — no `id`/`createdAt` in the payload, including `.demo()`.
 - **`onUpdate`** fires when `set`/`setMany` actually changes something — it reads the `boolean` those return, so two real mutations in the same millisecond fire twice; a no-op `set` to the same value does not fire it at all.
 - **`onDelete`** fires the first time `destroy()` is called; a repeated call does not fire it again.
-- Each decorator takes a **payload-less** `DomainEvent` subclass reference — a constructor taking only `aggregateId`, the same bare-class form `raiseEvent` already accepts without `new`.
+- Each decorator takes a `DomainEvent` subclass reference whose constructor takes only `aggregateId` — the same bare-class form `raiseEvent` already accepts without `new`. That includes an event [declaring a payload](#declaring-what-an-event-carries): the payload comes from the entity, not from the constructor, so the class stays bare and the decorator takes **no** second argument.
 - The decorated class keeps its own `name`, so stack traces and DI containers still identify it as itself.
-- **On a nested entity, pull deep.** A decorated class used as another blueprint's property raises into its *own* buffer, and `onCreate` fires every time the parent is built. Either decorate only aggregate roots, or drain with `parent.pullDomainEvents({ deep: true })`.
+- **On a nested entity, the root's pull is what drains it.** A decorated class used as another blueprint's property raises into its *own* buffer, and `onCreate` fires every time the parent builds it. `parent.pullDomainEvents()` walks into it by default — but `{ deep: false }` there would strand the event, and so would decorating something that is not an aggregate root.
 - **There is deliberately no `onRead`.** Rebuilding an entity from storage changes nothing, so it is not a domain fact — and an event raised there would ride along in every `CommandResult`, making a command that merely loads an aggregate to delete it report a spurious "read" next to the real event. Audit reads where reads actually happen: in the repository.
 
 ### Method decorators
@@ -738,6 +812,30 @@ const cardShape = reshapeShape({
 - **A mismatch throws `InvalidPropertyException`**, its `property` carrying the dotted path to the offending key (`"author.twitter"`, `"tags[].headline"`), before anything is projected.
 - **Rules do not participate, and nothing is redacted.** `default`/`derive` act on construction input, not on an instance already built, so a `default` cannot stand in for a key the source lacks. The cut is taken from `toJSON()`, not `toSafeJSON()` — redacting would break the round trip that makes the payload hydratable.
 
+### Comparing entities
+
+`equals` answers **identity**: same class, same `id`, state irrelevant. `sameStateAs` answers **state**: one comparison per blueprint key, with `id`, `createdAt` and `updatedAt` left out of it.
+
+```typescript
+const stored = await posts.findById(post.id);
+
+stored.rename("another title");
+
+post.equals(stored);      // true  — same identity, different state
+post.sameStateAs(stored); // false — the title moved
+```
+
+That split is what `deepEquals(a.toJSON(), b.toJSON())` could never give you: `toJSON()` carries the timestamps, so it answers neither question. `deepEquals` is still exported and still right for what it is — structural equality over a **DTO**.
+
+Key rules:
+
+- **The type check is the class itself, by exact prototype — not `instanceof`.** That keeps the relation symmetric: a `DraftPost extends Post` sharing an `id` is not equal to a `Post` in **either** direction. The corollary is the rule every blueprint already follows — call `entityOf` (and every other class-returning factory) once, at module scope. Two calls with identical arguments mint two classes, and instances of them are never equal.
+- **Adoption accepts a subclass; equality refuses one.** Handing a nested key a `DraftPost extends Post` adopts that instance without a word — `isBuiltInstance` tests `instanceof`, the same ruler `entityHas` and `reshapeTo` use — and from then on it compares equal to no plain `Post`. Both rulers are right for their own question; this is the one place they point opposite ways.
+- **Every key answers with its own pillar's rule.** `sameStateAs` delegates per key: a value-object compares by value, a nested record by its own properties, a wrapper item by item — and a **nested entity by its `id`**.
+- **So renaming `post.author` does not change `post.sameStateAs(other)`.** What the post holds is the author's identity, and that did not move. Ask `post.author` itself when the question is about the author's state.
+- **It is not a serialization comparison, deliberately.** Through `toJSON()` it would fold in the identity fields of every nested entity; through `toSafeJSON()` it would compare redaction placeholders and call two different secrets the same. It compares the **real** values, and reveals nothing — the answer is one boolean.
+- **`equals` and `sameStateAs` are reserved blueprint keys** — here and, for `equals`, in `DomainRecord` too. Declaring either throws `PropertyNameCollisionException`, like `schema`, `toJSON` and `id`. The check is `key in prototype`, so a name is reserved only in the pillar that declares the member: a `Command` has no `equals` and reserves neither.
+
 ---
 
 ## DomainRecord
@@ -792,9 +890,10 @@ Key rules:
 - **`set`/`setMany` are `protected`.** Nothing outside the class may mutate a record; only the verbs it declares. `setMany` is atomic (validate all, build all, then assign), and its returned `boolean` is the **only** signal that something changed — there is no `updatedAt` to compare.
 - **A blueprint key may not be `id`, `createdAt` or `updatedAt`.** A record does not have identity and may not fake it; the attempt throws `PropertyNameCollisionException`.
 - **`toJSON()` never redacts** (it is the persistence contract and must round-trip through `fromJSON`); `toSafeJSON()`, `toString()` and the inspect hook do — the same asymmetry `Entity` has, not `Command`'s.
-- **A record raises no domain events.** There is no `[Events]` slot and no `raiseEvent`: an event belongs to an aggregate root, and a record has no identity to report as its `aggregateId`. It *does* forward `pullDomainEvents({ deep: true })` into the entities it nests, so their buffers are never stranded behind it; the shallow form always returns `[]`.
+- **A record raises no domain events.** There is no `[Events]` slot and no `raiseEvent`: an event belongs to an aggregate root, and a record has no identity to report as its `aggregateId`. It *does* forward `pullDomainEvents()` into the entities it nests, so their buffers are never stranded behind it; with `{ deep: false }` it always returns `[]`.
 - **No `[Storage]`, no `destroy()`.** Both exist for something with a lifecycle of its own; a record's lifecycle is its owner's.
 - **The lifecycle and method decorators do not apply.** All five end in `raiseEvent`. `onUpdate` is the tempting one — a record does have `setMany` — and it will fail at call time.
+- **`equals` compares by value**, key by key — a record has no identity, so it has only the one question an entity splits into two. Each key answers with its own pillar's rule, which means a **nested entity compares by its `id`**. See [Comparing entities](#comparing-entities); `equals` is a reserved blueprint key here too.
 - **Mutating a nested record does not stamp the parent's `updatedAt`.** `post.price.add(500)` changes the record in place; `post.set("price", raw)` is what stamps. Same as a nested entity, but far more visible here, since a record exists *to* have verbs.
 
 ---
@@ -835,13 +934,14 @@ Construction relaxes **item by item** exactly as the unwrapped key would: a wrap
 
 Key rules:
 
-- **Reads are unwrapped, and there is no `.add()`.** `post.tags` is the list itself, not a collection object with verbs — a wrapper states a multiplicity, it does not become a domain concept. Appending therefore replaces the whole list through `set`, and the existing items go back **through `toJSON()`**, which is what preserves their `id`s:
+- **Reads are unwrapped, and there is no `.add()`.** `post.tags` is the list itself, not a collection object with verbs — a wrapper states a multiplicity, it does not become a domain concept. Appending therefore replaces the whole list through `set`, and the existing items go back **as they are**: a value that is already an instance of the wrapped class is adopted, not rebuilt.
   ```typescript
-  post.set("tags", [...post.tags.map((tag) => tag.toJSON()), { name: "new" }]);
+  post.set("tags", [...post.tags, { name: "new" }]);   // built items adopted, raw item built
+  post.set("tags", [...post.tags, new PostTag({ name: "new" })]); // same, built ahead of time
   ```
-  Omitting an item's identity mints a new one. Same contract `set` already has on a nested entity key, only more visible in a list.
+  Adoption is what preserves each item's `id`, its state and any events it had buffered. A **serialized** item (`tag.toJSON()`) still rebuilds, and omitting an item's identity there mints a new one. Same contract `set` already has on a nested entity key, only more visible in a list. The test is `instanceof`, so a subclass of the wrapped class is adopted too — and then compares equal to nothing, since `equals` takes the exact prototype. The price of adoption is aliasing: one instance can now sit in two parents, and mutating it shows in both.
 - **`optionalOf` and `nullableOf` are not interchangeable.** `null` never extends `undefined`: an `optionalOf` key is **omittable** and drops out of the schema's `required`, a `nullableOf` key stays **required** and must be stated. The usual `undefined` (request body) versus `null` (database column) split — the same one `optionalVO` and `nullableVO` draw one level down.
-- **A deep drain reaches into the contents.** `post.pullDomainEvents({ deep: true })` walks every item, so an entity inside an `arrayOf` is never stranded. The shallow form returns only the owner's own events, as always.
+- **A drain reaches into the contents.** `post.pullDomainEvents()` walks every item, so an entity inside an `arrayOf` is never stranded. `{ deep: false }` returns only the owner's own events.
 - **`demo()` yields an empty container** — `[]`, `undefined` or `null`. A fixture with items is written by passing them.
 - **The derived schema carries the multiplicity**: `t.Array(inner)`, or `t.Union([inner, t.Undefined()])` / `t.Union([inner, t.Null()])`. `fromJSON` therefore still demands a **complete** payload per item, identity included.
 - **A wrapped key derives no repository method.** A list is not a predicate, and an optional entity is the nested-entity case with an extra state, so `findByTags` and `findByAuthor` are compile errors. Filter by a scalar the aggregate owns.
@@ -851,6 +951,7 @@ Key rules:
 - **A cycle through a wrapper is still a cycle.** `{ children: arrayOf(Node) }` inside `Node`'s own blueprint throws `CyclicEntityDefinitionException`, exactly as direct nesting does.
 - **A wrapped value-object keeps its own `sensitive: true`.** `arrayOf(PasswordVO)` redacts every item in `toSafeJSON()`, `toString()` and the inspect hook, exactly as the unwrapped key would — wrapping a class must not un-declare what the class declares. `toJSON()` stays lossless, as it does everywhere on an `Entity`.
 - **`sensitive: [...]` naming a wrapped key does not redact the whole key.** `isSensitive` answers `true`, but `toSafeJSON` takes the container branch and each item applies its own rules — the same pre-existing limitation an entity- or record-valued key has. The per-item redaction above is what a wrapped *value-object* still gets.
+- **`equals` compares the contents, item by item and in order.** A wrapper is a sequence, not a set. Each item answers with its own pillar's rule, so a wrapped entity compares by its `id`. A container minted by a *different* `arrayOf(Tag)` call answers `false` rather than throwing — the same once-at-module-scope rule as everywhere else — and so does a **subclass** of the container, which keeps the wrapper on the same exact-class rule the three bases follow.
 - **`arrayOf(EmailVO)` and `customArrayVO(EmailSchema)` both exist, and neither is deprecated.** The first wraps a **class**, inheriting its `transform`, `validate` and `sensitive`; the second wraps a **schema**.
 
 A `Command` blueprint accepts wrappers too, including one around an `Entity` — an asymmetry worth naming, since a bare `Entity` key stays a compile error there. A wrapper makes no judgment about what it holds, and the transitive reach was already open anyway (a record blueprint may hold an entity).
@@ -881,6 +982,7 @@ Key rules:
 - **`defineMeta` must be a prototype method, never a class field** — the base invokes it during construction. It must also be **pure**: `metaOf` (from `@roastery/beans/domain/value-object/helpers`) reads it through a probe without running any constructor.
 - **`meta.default` must pass `meta.schema`.** The default is validated like any other value; an invalid default makes `demo()` throw and breaks the schema of any entity using the class.
 - **`meta.default` may be a thunk**, and should be whenever it's expensive — `defineMeta()` runs on every construction, but a thunk is only invoked in demo mode (`UuidVO` declares `default: generateUUID`).
+- **`equals` compares by value, and the class is part of the value.** Two instances of the exact same class holding a structurally identical value are equal — a composite value (`customObjectVO`, `customArrayVO`) compares structurally, not by reference. A subclass is a different kind and is never equal to its parent, in either direction. A `sensitive: true` class compares its **real** value, so the answer is right; nothing leaks, since the answer is one boolean.
 - **Override `transform()`** when the value has a canonical form (e.g. `SlugVO` slugifies before validating). `transform` does not run over defaults — declare them already canonical.
 
 ---
@@ -2078,6 +2180,8 @@ Every item here is a consequence of a choice stated elsewhere in this README. Th
 - **`sensitive` has two declaration sites and only one closes the port.** `sensitive: true` on a value-object suppresses that key's lookup methods; `sensitive: ["token"]` on `defineEntity`/`entityOf` redacts and answers `isSensitive` but suppresses nothing. See [It also shapes the repository port](#it-also-shapes-the-repository-port) — the literal does not survive into the class type, and diverging would break the equivalence `entityOf` and the hand-written form are deliberately kept at.
 
 - **`sensitive: [...]` cannot reach *into* a nested or wrapped key.** Naming an entity-, record- or wrapper-valued key on `defineEntity`/`entityOf` makes `isSensitive` answer `true`, but `toSafeJSON` takes the recursive branch and the sub-object applies its own declared keys instead. A wrapped **value-object** is the one case that does redact, from its own `sensitive: true`. Declare the secret where it lives.
+
+- **`equals` is strict about the class, so two factory calls are never equal.** The check is the exact prototype, which is what keeps the relation symmetric — but it means two `recordOf`, `customRecordVO` or `arrayOf` calls with identical arguments produce classes whose instances answer `false`. Same rule the whole package already states for blueprints: mint the class once, at module scope, and reference it from both sides. Note this is *stricter* than `entityHas`/`reshapeTo`, which deliberately accept a subclass — those ask whether a class satisfies a contract, `equals` asks whether two instances are the same thing.
 
 - **The accessor type merge is the one silent failure left.** In the hand-written class form, skipping `interface X extends AccessorsOf<…> {}` leaves the accessors working at runtime and invisible to the type system. `entityOf` removes the line, and with it the failure mode — everything else in the package fails loudly, with an exception naming the cause.
 

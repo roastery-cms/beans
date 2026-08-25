@@ -204,6 +204,33 @@ describe("Command", () => {
 			);
 		});
 
+		/**
+		 * `installAccessors` tests `key in prototype`, and the three pillars are
+		 * three unrelated prototype chains — so a member reserves its name only
+		 * in the pillar that declares it. `equals` is a `Entity`/`DomainRecord`
+		 * member; `Command` has none, deliberately, and therefore reserves
+		 * nothing. A command blueprint may name the key.
+		 */
+		it("accepts a blueprint key called equals, which no Command member reserves", () => {
+			const equalsProperties = { equals: StringVO };
+
+			class WithEquals extends Command<typeof equalsProperties, void, string> {
+				protected defineCommand(): CommandDefinition<typeof equalsProperties> {
+					return { properties: equalsProperties, source: "with-equals" };
+				}
+
+				public async execute(): Promise<CommandResult<string>> {
+					return { result: "", events: [] };
+				}
+			}
+
+			const command = new WithEquals({ equals: "a value" });
+
+			expect(command.get("equals")).toBe("a value");
+			expect("equals" in Command.prototype).toBe(false);
+			expect("sameStateAs" in Command.prototype).toBe(false);
+		});
+
 		it("wraps a property validation failure as an application-layer exception, not a domain one", () => {
 			try {
 				new RenameTagCommand({ name: "hello", slug: "" });

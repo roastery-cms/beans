@@ -20,9 +20,11 @@ Sibling skills carry the rest of this pillar: `beans-blueprint-rules` (`blueprin
    accessors are installed at runtime regardless; the merge is how TS learns about them. Skipping it is
    the **one silent failure mode** left in the package. Prefer `entityOf`/`recordOf`, which need no merge.
 3. **A blueprint key may not collide with an existing member** (`schema`, `toJSON`, `get`, `set`, `id`,
-   …) — `PropertyNameCollisionException`, checked before anything is defined, so the install is atomic.
-   (`name` is safe — it lives on the constructor.) A **record** blueprint may additionally not name
-   `id`/`createdAt`/`updatedAt`.
+   `equals`, …) — `PropertyNameCollisionException`, checked before anything is defined, so the install is
+   atomic. The test is `key in prototype`, and the three pillars are three **unrelated** prototype
+   chains, so a member reserves its name only in the pillar that declares it: `equals` in `Entity` and
+   `DomainRecord`, `sameStateAs` in `Entity` only, neither in `Command`. (`name` is safe — it lives on
+   the constructor.) A **record** blueprint may additionally not name `id`/`createdAt`/`updatedAt`.
 4. **`id`/`createdAt`/`updatedAt` never appear in an entity blueprint** — the base supplies them.
 5. **`setMany` is the mutation primitive; `set` delegates to it.** Validate all, build all, then assign,
    so a rejected value leaves the entity untouched; `updatedAt` is stamped once, and only if something
@@ -154,10 +156,53 @@ class Money extends recordOf({ amount: IntegerVO, currency: StringVO }, "money")
   guard (no identity to protect) nor the `updatedAt` stamp — **which makes the returned `boolean` the only
   signal that anything changed**.
 - **No `[Events]`, no `raiseEvent`, no `[Storage]`, no `destroy()`, no `unique`.** `pullDomainEvents` exists
-  purely as a forwarder for the deep form; the shallow form always returns `[]`.
+  purely to forward the walk into what the record nests; with `{ deep: false }` it always returns `[]`.
 - `fromJSON` throws `InvalidDomainDataException` (domain-layer, **not** `Command.fromJSON`'s
   `BadRequestException`). `toJSON()` never redacts; `toSafeJSON()`/`toString()`/the inspect hook do.
 - **The decorators do not apply**; `onUpdate` is the tempting one, and nothing guards it at runtime.
+
+## Equality: `equals` and `sameStateAs`
+
+Three pillars, three rules, and the base is what knows which one applies. **Never write
+`deepEquals(a.toJSON(), b.toJSON())`** — that is the line this exists to replace, and it is wrong for an
+entity (`toJSON` carries `createdAt`/`updatedAt`) and for anything nesting one.
+
+| Call | Answers |
+|---|---|
+| `ValueObject.equals` | exact class + `deepEquals` over `value` |
+| `Entity.equals` | exact class + same `id`. State is irrelevant |
+| `Entity.sameStateAs` | exact class + one `propertyEquals` per **blueprint** key; identity excluded |
+| `DomainRecord.equals` | `Entity.sameStateAs`'s body — no identity, so by-value *is* its equality |
+| wrapper `equals` | same class + item by item, **order-sensitive** |
+
+- **The type check is `Object.getPrototypeOf`, never `instanceof`.** `instanceof` is asymmetric — a
+  subclass would equal its parent one way and not the other, and the relation would stop being an
+  equivalence. The cost is the rule already stated everywhere: mint a class-returning factory once, at
+  module scope. Two calls, two classes, never equal.
+- **This is *stricter* than `propertyMatches`/`entityHas`/`reshapeTo`, on purpose.** Those ask whether a
+  class satisfies a contract, where accepting a domain-vocabulary subclass is the point; `equals` asks
+  whether two instances are the same thing, where a subclass is a different kind.
+- **Every key delegates, through `propertyEquals` (`@/shared/helpers/property-equals`).** So a **nested
+  entity compares by its `id`**: renaming `post.author` does not change `post.sameStateAs(other)`. Ask the
+  nested entity itself when the question is about its state.
+- **It compares the real values.** Not `toJSON()` (identity fields of every nested entity), not
+  `toSafeJSON()` (two different secrets would compare as one placeholder). A `sensitive` key therefore
+  compares correctly, and leaks nothing — the answer is a boolean.
+- **`propertyEquals` needs no `undefined` branch**, and that is a guarantee: `buildContext` fills one built
+  instance per blueprint key on every path, so an `optionalVO` key holds a value object wrapping
+  `undefined` rather than an empty slot. The only `undefined` in an entity's `[Context]` is `updatedAt`,
+  which is not a blueprint key.
+- **`deepEquals` is not deprecated and is not the same tool.** It answers structural equality over a
+  **DTO** — `setMany`'s change detection and the in-memory double's filtering both need exactly that,
+  over raw values that were never domain instances.
+- `Command` has no `equals`: it is an input DTO, has no identity, and its `toJSON` redacts. Sharing
+  `installAccessors` costs it nothing — the test is `key in prototype`, so a command blueprint may name
+  `equals` freely.
+- **Adoption accepts a subclass this refuses.** `isBuiltInstance` tests `instanceof`, so a
+  `DraftAuthor extends Author` is adopted into an `Author` key without a word and then equals no plain
+  `Author`. Both rulers are right for their own question; see **Nesting** below for the seam.
+
+> Detail: `docs/decisions/equality-per-pillar.md` · `docs/decisions/adoption-over-rebuild.md`.
 
 ## Nesting
 
@@ -168,6 +213,16 @@ so `arrayOf(User)` compiles in a command where `User` does not.
 - `get("author")` returns the **nested instance** (chainable: `post.get("author").get("name")`,
   `post.price.add(10)`); `set("author", raw)` takes the nested value's *raw* payload — identity optional for
   an entity, absent for a record — and rebuilds it.
+- **An already-built instance is adopted, not rebuilt.** `set("author", authorInstance)` (and the same at
+  construction, and item by item inside a wrapper) keeps *that* object: `buildProperty` tests
+  `isBuiltInstance` (`@/shared/helpers`) before reaching for `new`. That is what carries the instance's
+  identity, its state and its buffered events across the assignment — rebuilding from an instance reads back
+  only the identity, so an entity whose keys all carry rules came back filled with defaults, in silence. The
+  type system already accepted the instance at that boundary; this is the runtime catching up. Value objects
+  are excluded: their raw input *is* the wrapped value. The trade is aliasing — the same instance can now sit
+  in two parents, and mutating it there shows in both. **The test is `instanceof`, so a subclass is adopted
+  too** — the same ruler `entityHas`/`reshapeTo` hold up, and the opposite of `equals`'s exact prototype.
+  See `docs/decisions/adoption-over-rebuild.md`.
 - `toJSON`/`fromJSON`/`schema` all recurse; nesting keeps the rules at every depth.
 - A validation error raised inside a nested entity carries **its own** `source` and field name
   (`("name", "author")`, not `("author", "post")`) — more precise, but the outer path is lost.

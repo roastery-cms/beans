@@ -27,6 +27,7 @@ import {
 } from "@roastery/terroir/exceptions/domain";
 import { applyRuleDefaults } from "@/shared/helpers/apply-rule-defaults";
 import { installAccessors } from "@/shared/helpers/install-accessors";
+import { propertyEquals } from "@/shared/helpers/property-equals";
 import { redactIfSensitive } from "@/shared/redaction/redact-if-sensitive";
 import { resolveSensitiveKeys } from "@/shared/redaction/resolve-sensitive-keys";
 import type { ISensitiveKey } from "@/shared/redaction/sensitive-keys-of";
@@ -41,9 +42,11 @@ import { buildBaseContext } from "./helpers/build-base-context";
 import { cycleError } from "@/shared/helpers/cycle-error";
 import { isValueObject } from "@/shared/helpers/is-value-object";
 import { isWrapper } from "@/shared/helpers/is-wrapper";
+import { isBuiltInstance } from "@/shared/helpers/is-built-instance";
 import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
 import { rawOf } from "@/shared/helpers/raw-of";
 import { resolveUniqueKeys } from "./helpers/resolve-unique-keys";
+import { eventPayloadOf } from "./helpers/event-payload-of";
 import { extractIdentity } from "./helpers/extract-identity";
 import { modelFor } from "./helpers/model-for";
 import { RAW_ENTITY_KEYS } from "./helpers/raw-entity-keys";
@@ -112,12 +115,20 @@ function buildProperty(
 ): AnyValueObject | AnyEntity | AnyRecord | AnyWrapper {
 	const propertyClass = properties[key] as AnyPropertyClass;
 
-	if (!isValueObjectClass(propertyClass))
-		return useDefault
-			? (propertyClass as unknown as { demo(): AnyEntity }).demo()
-			: new (propertyClass as unknown as new (payload: never) => AnyEntity)(
-					value as never,
-				);
+	if (!isValueObjectClass(propertyClass)) {
+		if (useDefault)
+			return (propertyClass as unknown as { demo(): AnyEntity }).demo();
+
+		// Adoption, not reconstruction: a caller that already built the nested
+		// value keeps *that* instance, with its identity, its state and its
+		// buffered events. Rebuilding it would read back only the identity.
+		if (isBuiltInstance(propertyClass, value))
+			return value as AnyEntity | AnyRecord | AnyWrapper;
+
+		return new (propertyClass as unknown as new (payload: never) => AnyEntity)(
+			value as never,
+		);
+	}
 
 	const context: IValueObjectContext = { name: key, source };
 
@@ -619,6 +630,111 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	}
 
 	/**
+	 * Whether another value is **this same entity** — the same class, holding
+	 * the same `id`. State plays no part: two reads of one aggregate taken
+	 * before and after a rename are the same entity, which is the whole reason
+	 * an entity has an identity in the first place.
+	 *
+	 * That is also why `deepEquals(a.toJSON(), b.toJSON())` is the wrong tool
+	 * here and always was: `toJSON` carries `createdAt` and `updatedAt`, so it
+	 * answers a question about timestamps rather than about identity. Reach for
+	 * {@link Entity.sameStateAs} when the question really is about the state.
+	 *
+	 * The type check is the class itself, by exact prototype rather than by
+	 * `instanceof`, which keeps the relation symmetric: a `DraftPost extends
+	 * Post` sharing an `id` with a `Post` is not equal to it in **either**
+	 * direction, and a `PostCard` cut from a `Post` by `reshapeTo` is not
+	 * either. The corollary is the rule that already governs a blueprint —
+	 * call `entityOf` once, at module scope.
+	 *
+	 * @param other - Anything. A non-object, a `null` or an instance of another
+	 *   class is simply not equal.
+	 * @returns `true` when `other` is an instance of the exact same class with
+	 *   the same `id`.
+	 *
+	 * @example
+	 * ```ts
+	 * const stored = await posts.findById(post.id);
+	 *
+	 * stored.rename("another title");
+	 * post.equals(stored); // true — same identity, different state
+	 * ```
+	 *
+	 * @see {@link Entity.sameStateAs} — the by-state half of the pair.
+	 * @see `DomainRecord.equals` in `@/domain/record/record` — the same method
+	 *   on the pillar that has no identity, so it compares by value instead.
+	 */
+	public equals(other: unknown): boolean {
+		if ((this as unknown) === other) return true;
+
+		if (other === null || typeof other !== "object") return false;
+
+		if (Object.getPrototypeOf(this) !== Object.getPrototypeOf(other))
+			return false;
+
+		return this.id === (other as { readonly id: string }).id;
+	}
+
+	/**
+	 * Whether another entity of the same class **holds the same state**: one
+	 * comparison per blueprint key, and nothing else. Identity does not
+	 * participate — neither `id` nor `createdAt` nor `updatedAt` — so this
+	 * answers both "did this aggregate change since I read it?" and "do these
+	 * two distinct entities carry the same content?". {@link Entity.equals}
+	 * answers the identity question.
+	 *
+	 * **Every key answers with its own pillar's rule**, because every key
+	 * delegates to that property's own `equals`: a value-object compares by
+	 * value, a nested record by its own properties, a wrapper item by item —
+	 * and a **nested entity by its id**. So renaming `post.author` does not
+	 * change `post.sameStateAs(other)`: what the post holds is the author's
+	 * identity, and that did not move. Ask the nested entity itself when the
+	 * question is about its state.
+	 *
+	 * It is not a serialization comparison and deliberately so. Going through
+	 * `toJSON()` would fold in the identity fields of every nested entity, and
+	 * through `toSafeJSON()` it would compare redaction placeholders and call
+	 * two different secrets the same.
+	 *
+	 * @param other - Anything. A non-object, a `null` or an instance of another
+	 *   class is simply not the same state.
+	 * @returns `true` when `other` is an instance of the exact same class and
+	 *   every blueprint key compares equal.
+	 *
+	 * @example
+	 * ```ts
+	 * const before = Post.fromJSON(row);
+	 * const after = Post.fromJSON(row);
+	 *
+	 * before.sameStateAs(after); // true
+	 * after.rename("another title");
+	 * before.sameStateAs(after); // false
+	 * before.equals(after); // still true — same id
+	 * ```
+	 *
+	 * @see {@link Entity.equals} — the by-identity half of the pair.
+	 * @see `propertyEquals` in `@/shared/helpers/property-equals` — the
+	 *   per-key delegation.
+	 */
+	public sameStateAs(other: unknown): boolean {
+		if ((this as unknown) === other) return true;
+
+		if (other === null || typeof other !== "object") return false;
+
+		if (Object.getPrototypeOf(this) !== Object.getPrototypeOf(other))
+			return false;
+
+		const mine = this[Context] as Record<string, unknown>;
+		const theirs = (other as { readonly [Context]: Record<string, unknown> })[
+			Context
+		];
+
+		return Object.keys(this[Properties]).every((key) =>
+			propertyEquals(mine[key], theirs[key]),
+		);
+	}
+
+	/**
 	 * Replaces one property from its raw value. Delegates to
 	 * {@link Entity.setMany}, inheriting its atomicity and its `updatedAt`
 	 * stamping rules.
@@ -906,10 +1022,8 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * their own. A subclass calls this from its own business methods, at the
 	 * point a change becomes domain-meaningful. Prefer raising from the
 	 * aggregate root — an event raised inside a nested entity (`post.get(
-	 * "author").someMethod()`) lands in that nested entity's own buffer, so a
-	 * plain `pullDomainEvents()` on the root will not see it. Reach for
-	 * `pullDomainEvents({ deep: true })` when the aggregate genuinely raises
-	 * from more than one level.
+	 * "author").someMethod()`) lands in that nested entity's own buffer, which
+	 * the root's `pullDomainEvents()` drains along with its own.
 	 *
 	 * @typeParam Event - The event, inferred either from the object passed or
 	 *   from the instance type of the class reference passed, so any payload
@@ -921,9 +1035,15 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 		Event extends Omit<IDomainEvent, "occurredAt" | "aggregateId">,
 	>(event: Event | (new (aggregateId: string) => Event)): void {
 		const built = typeof event === "function" ? new event(this.id) : event;
+		const payload = eventPayloadOf(this, built);
 
 		this[Events].push({
 			...built,
+			// After the spread, so a declaration always wins; and spread from a
+			// conditional object rather than assigned, so an event that declares
+			// nothing buffers without a `payload` key at all — which is what
+			// leaves a plain object literal carrying its own untouched.
+			...(payload === undefined ? {} : { payload }),
 			occurredAt: DateTimeVO.now({ name: "occurredAt", source: this[Source] })
 				.value,
 			aggregateId: this.id,
@@ -936,24 +1056,23 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	 * buffer. Starts empty on every construction path (`new`, `fromJSON`,
 	 * `demo`) — there is no source instance to carry events over from.
 	 *
-	 * By default it drains **only this entity's own buffer**: an event raised
-	 * inside a nested entity stays there, since a nested entity is a
-	 * participant in the aggregate rather than a second root. Pass
-	 * `{ deep: true }` to drain the whole aggregate — this buffer first, then
-	 * each nested entity's, recursively, in blueprint order. That is the form
-	 * to reach for whenever the blueprint holds an entity carrying lifecycle
-	 * decorators (`./decorators`): a decorated nested entity raises on its own
-	 * construction, and a shallow pull from the root would leave that event
-	 * sitting in a buffer nobody ever reads.
+	 * By default it drains **the whole aggregate**: this buffer first, then
+	 * each nested entity's, recursively, in blueprint order. A nested entity
+	 * is a participant in the aggregate rather than a second root, so its
+	 * events belong to the root's pull — and a blueprint holding an entity
+	 * with lifecycle decorators (`./decorators`) raises from more than one
+	 * level without the root ever asking for it. Leaving those behind was a
+	 * silent loss; the caller who genuinely wants only what this entity itself
+	 * raised passes `{ deep: false }`.
 	 *
-	 * @param options - `deep` drains nested entities too; omitted or `false`
-	 *   keeps the historical, root-only behaviour.
+	 * @param options - `deep: false` restricts the drain to this entity's own
+	 *   buffer; omitted or `true` drains nested entities too.
 	 * @returns The events raised since the last pull, root's own first.
 	 *
 	 * @example
 	 * ```ts
-	 * post.pullDomainEvents();               // only what Post itself raised
-	 * post.pullDomainEvents({ deep: true }); // Post + nested Author
+	 * post.pullDomainEvents();                // Post + nested Author
+	 * post.pullDomainEvents({ deep: false }); // only what Post itself raised
 	 * ```
 	 *
 	 * @see `collectDomainEvents` in `@roastery/beans/application/command/helpers`
@@ -964,7 +1083,7 @@ export abstract class Entity<const PropertiesShape extends PropertiesShapeBase>
 	}): readonly IDomainEvent[] {
 		const own = this[Events].splice(0);
 
-		if (options?.deep !== true) return own;
+		if (options?.deep === false) return own;
 
 		const nested = Object.values(
 			this[Context] as Record<

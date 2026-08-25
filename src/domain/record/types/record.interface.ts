@@ -58,6 +58,9 @@ export interface IRecord<
 	/** JSON-string form of {@link IRecord.toSafeJSON} — safe to log. */
 	toString(): string;
 
+	/** Whether another record of the same class holds the same value: one comparison per blueprint key. A nested entity compares by its `id`. */
+	equals(other: unknown): boolean;
+
 	/** Reads one key: nested instance, or wrapped raw value. */
 	get<Key extends RecordDomainKeys<PropertiesShape>>(
 		key: Key,

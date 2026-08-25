@@ -20,6 +20,7 @@ import { deepEquals } from "@/domain/entity/helpers/deep-equals";
 import { installAccessors } from "@/shared/helpers/install-accessors";
 import { isValueObject } from "@/shared/helpers/is-value-object";
 import { isWrapper } from "@/shared/helpers/is-wrapper";
+import { propertyEquals } from "@/shared/helpers/property-equals";
 import { rawOf } from "@/shared/helpers/raw-of";
 import { readSetHandlers } from "@/shared/helpers/read-set-handlers";
 import { redactIfSensitive } from "@/shared/redaction/redact-if-sensitive";
@@ -396,6 +397,68 @@ export abstract class DomainRecord<
 	}
 
 	/**
+	 * Whether another record of the same class **holds the same value**: one
+	 * comparison per blueprint key, and nothing else.
+	 *
+	 * A record is an `Entity` minus identity, so it has no second question to
+	 * ask — this single method is both `Entity.equals` and `Entity.sameStateAs`
+	 * collapsed into the only one that means anything without an `id`. The body
+	 * is `Entity.sameStateAs`'s, and that is the point rather than a
+	 * coincidence.
+	 *
+	 * **Every key answers with its own pillar's rule**, because every key
+	 * delegates to that property's own `equals`: a value-object compares by
+	 * value, a nested record recurses, a wrapper goes item by item — and a
+	 * **nested entity compares by its id**, so a record holding one is equal to
+	 * another holding the same entity regardless of that entity's state.
+	 *
+	 * It is not a serialization comparison: `toJSON()` would fold in the
+	 * identity fields of any nested entity, and `toSafeJSON()` would compare
+	 * redaction placeholders and call two different secrets the same.
+	 *
+	 * The type check is the class itself, by exact prototype rather than by
+	 * `instanceof`, which keeps the relation symmetric. The corollary is the
+	 * rule that already governs a blueprint — call `recordOf` (or
+	 * `customRecordVO`) once, at module scope. Two calls with identical
+	 * arguments mint two classes, and instances of them are never equal.
+	 *
+	 * @param other - Anything. A non-object, a `null` or an instance of another
+	 *   class is simply not equal.
+	 * @returns `true` when `other` is an instance of the exact same class and
+	 *   every blueprint key compares equal.
+	 *
+	 * @example
+	 * ```ts
+	 * const price = new Money({ amount: 500, currency: "BRL" });
+	 *
+	 * price.equals(new Money({ amount: 500, currency: "BRL" })); // true
+	 * price.equals(new Money({ amount: 500, currency: "USD" })); // false
+	 * ```
+	 *
+	 * @see `Entity.equals` in `@/domain/entity/entity` — the same question on
+	 *   the pillar that does have an identity, answered by `id`.
+	 * @see `propertyEquals` in `@/shared/helpers/property-equals` — the
+	 *   per-key delegation.
+	 */
+	public equals(other: unknown): boolean {
+		if ((this as unknown) === other) return true;
+
+		if (other === null || typeof other !== "object") return false;
+
+		if (Object.getPrototypeOf(this) !== Object.getPrototypeOf(other))
+			return false;
+
+		const mine = this[Context] as Record<string, unknown>;
+		const theirs = (other as { readonly [Context]: Record<string, unknown> })[
+			Context
+		];
+
+		return Object.keys(this[Properties]).every((key) =>
+			propertyEquals(mine[key], theirs[key]),
+		);
+	}
+
+	/**
 	 * Replaces one property from its raw value. Delegates to
 	 * {@link DomainRecord.setMany}, inheriting its atomicity.
 	 *
@@ -553,13 +616,14 @@ export abstract class DomainRecord<
 	 * Forwards a **deep** domain-event drain to the entities this record
 	 * nests, concatenating in blueprint order.
 	 *
-	 * A record has no buffer of its own and never raises, so the shallow form
-	 * — the default — always returns `[]`. The deep form exists because a
-	 * record's blueprint may hold an entity: without the forward, an entity
-	 * nested behind a record would keep its events forever, which is exactly
+	 * A record has no buffer of its own and never raises, so the restricted
+	 * form (`{ deep: false }`) always returns `[]` — the forward is the only
+	 * reason this method exists. A record's blueprint may hold an entity, and
+	 * without it that entity would keep its events forever, which is exactly
 	 * the kind of silent loss the rest of the package avoids.
 	 *
-	 * @param options - `deep: true` walks into nested entities and records.
+	 * @param options - `deep: false` stops the walk; omitted or `true` walks
+	 *   into nested entities and records.
 	 * @returns The drained events, or `[]`.
 	 *
 	 * @see `Entity.pullDomainEvents` in `@/domain/entity` — where the events
@@ -568,7 +632,7 @@ export abstract class DomainRecord<
 	public pullDomainEvents(options?: {
 		readonly deep?: boolean;
 	}): readonly IDomainEvent[] {
-		if (options?.deep !== true) return [];
+		if (options?.deep === false) return [];
 
 		return Object.values(this[Context] as Record<string, unknown>).flatMap(
 			(property) =>

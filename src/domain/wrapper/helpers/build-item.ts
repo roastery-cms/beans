@@ -1,5 +1,6 @@
 import type { WrappableClass } from "@/domain/entity/types/wrappable-class.type";
 import type { IValueObjectContext } from "@/domain/value-object/types";
+import { isBuiltInstance } from "@/shared/helpers/is-built-instance";
 import { isValueObjectClass } from "@/shared/helpers/is-value-object-class";
 
 /**
@@ -33,10 +34,16 @@ export function buildItem(
 	name: string,
 	value: unknown,
 ): unknown {
-	if (!isValueObjectClass(inner))
+	if (!isValueObjectClass(inner)) {
+		// Adoption, not reconstruction — see `isBuiltInstance`. This is what
+		// makes appending through `set` keep the existing items' identities
+		// (and any events they buffered) without a `toJSON()` round trip.
+		if (isBuiltInstance(inner, value)) return value;
+
 		return new (inner as unknown as new (payload: never) => unknown)(
 			value as never,
 		);
+	}
 
 	const context: IValueObjectContext = { name, source };
 

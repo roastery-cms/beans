@@ -1,3 +1,4 @@
+import { deepEquals } from "@/domain/entity/helpers/deep-equals";
 import { InvalidPropertyException } from "@roastery/terroir/exceptions/domain";
 import type { t } from "@roastery/terroir";
 import { readMeta } from "./helpers/read-meta";
@@ -120,6 +121,55 @@ export abstract class ValueObject<
 	/** @returns The class's schema serialized as a JSON string. */
 	public get schema(): string {
 		return SchemaManager.serialize(this[Meta].schema);
+	}
+
+	/**
+	 * Whether another value is **the same value of the same kind** — a
+	 * value-object has no identity, so this is the only equality it has.
+	 *
+	 * The type check is the class itself, by exact prototype rather than by
+	 * `instanceof`, which keeps the relation symmetric: `EmailVO` and a
+	 * `UserEmail extends EmailVO` holding the same string are two kinds and are
+	 * not equal, in **both** directions. The corollary is the rule that already
+	 * governs putting a generated class in a blueprint — call a factory like
+	 * `customStringVO()` once, at module scope. Two calls with identical
+	 * arguments mint two classes, and instances of them are never equal.
+	 *
+	 * The value is compared with `deepEquals`, not `===`: a `customObjectVO` or
+	 * a `customArrayVO` wraps a structure, and two structurally identical ones
+	 * are the same value.
+	 *
+	 * It compares the **real** value, never the redacted one, so a class
+	 * declaring `sensitive: true` compares correctly — it is `toSafeJSON` that
+	 * loses the information, not this. Nothing is revealed either way: the
+	 * answer is one boolean.
+	 *
+	 * @param other - Anything. A non-object, a `null` or an instance of another
+	 *   class is simply not equal.
+	 * @returns `true` when `other` is an instance of the exact same class
+	 *   holding a structurally identical value.
+	 *
+	 * @example
+	 * ```ts
+	 * const context = { name: "email", source: "user" };
+	 *
+	 * new EmailVO("a@b.c", context).equals(new EmailVO("a@b.c", context)); // true
+	 * new EmailVO("a@b.c", context).equals(new EmailVO("d@e.f", context)); // false
+	 * new EmailVO("a@b.c", context).equals(new UserEmail("a@b.c", context)); // false
+	 * ```
+	 *
+	 * @see `Entity.equals` in `@/domain/entity/entity` — the same question one
+	 *   pillar up, answered by identity instead.
+	 */
+	public equals(other: unknown): boolean {
+		if ((this as unknown) === other) return true;
+
+		if (other === null || typeof other !== "object") return false;
+
+		if (Object.getPrototypeOf(this) !== Object.getPrototypeOf(other))
+			return false;
+
+		return deepEquals(this.value, (other as { readonly value: unknown }).value);
 	}
 
 	/**

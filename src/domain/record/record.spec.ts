@@ -4,6 +4,7 @@ import { customStringVO } from "@/domain/collections/value-objects/custom";
 import { OptionalStringVO } from "@/domain/collections/value-objects/optional";
 import { defineDomainEvent } from "@/domain/domain-event";
 import { blueprint, entityOf } from "@/domain/entity/helpers";
+import { arrayOf } from "@/domain/wrapper/helpers";
 import {
 	CyclicEntityDefinitionException,
 	InvalidDomainDataException,
@@ -233,6 +234,22 @@ describe("DomainRecord", () => {
 		class Wallet extends recordOf({ money: Money, note: Note }, "wallet") {}
 		class Post extends entityOf({ title: StringVO, wallet: Wallet }, "post") {}
 
+		it("adopts an already-built entity instead of rebuilding it", () => {
+			const note = new Note({ text: "n" });
+
+			note.rewrite("rewritten");
+
+			const wallet = new Wallet({
+				money: { amount: 1, currency: "BRL" },
+				note,
+			});
+
+			expect(wallet.note).toBe(note);
+			expect(
+				wallet.pullDomainEvents({ deep: true }).map((event) => event.name),
+			).toEqual(["NoteAdded"]);
+		});
+
 		it("returns the nested instance, so verbs chain", () => {
 			const post = new Post({
 				title: "hi",
@@ -270,7 +287,7 @@ describe("DomainRecord", () => {
 			expect(Object.keys(schema.note?.properties ?? {})).toContain("id");
 		});
 
-		it("drains an entity buried behind a record on a deep pull", () => {
+		it("drains an entity buried behind a record", () => {
 			const post = new Post({
 				title: "hi",
 				wallet: { money: { amount: 1, currency: "BRL" }, note: { text: "n" } },
@@ -278,17 +295,17 @@ describe("DomainRecord", () => {
 
 			post.wallet.note.rewrite("changed");
 
-			expect(post.pullDomainEvents()).toHaveLength(0);
+			expect(post.pullDomainEvents({ deep: false })).toHaveLength(0);
 
-			const deep = post.pullDomainEvents({ deep: true });
+			const deep = post.pullDomainEvents();
 
 			expect(deep).toHaveLength(1);
 			expect(deep[0]?.name).toBe("NoteAdded");
 			expect(deep[0]?.aggregateId).toBe(post.wallet.note.id);
 		});
 
-		it("returns nothing from a shallow pull on the record itself", () => {
-			expect(Wallet.demo().pullDomainEvents()).toHaveLength(0);
+		it("returns nothing from the record's own buffer, which it has not got", () => {
+			expect(Wallet.demo().pullDomainEvents({ deep: false })).toHaveLength(0);
 		});
 
 		it("detects a cycle that alternates pillars", () => {
@@ -417,6 +434,133 @@ describe("DomainRecord", () => {
 			const bad = new BadOnSet({ amount: 1, currency: "BRL" });
 
 			expect(() => bad.credit(2)).toThrow(InvalidEntityDefinitionException);
+		});
+	});
+
+	describe("equals", () => {
+		class Tag extends recordOf({ label: StringVO }, "tag") {}
+		class Basket extends recordOf({ tags: arrayOf(Tag) }, "basket") {}
+		class Owner extends entityOf({ name: StringVO }, "owner") {}
+		class Purse extends recordOf({ money: Money, owner: Owner }, "purse") {}
+
+		it("is true for the same class holding the same values", () => {
+			expect(
+				new Money({ amount: 500, currency: "BRL" }).equals(
+					new Money({ amount: 500, currency: "BRL" }),
+				),
+			).toBe(true);
+		});
+
+		it("is false when any single key differs", () => {
+			const price = new Money({ amount: 500, currency: "BRL" });
+
+			expect(price.equals(new Money({ amount: 500, currency: "USD" }))).toBe(
+				false,
+			);
+			expect(price.equals(new Money({ amount: 900, currency: "BRL" }))).toBe(
+				false,
+			);
+		});
+
+		it("follows a mutation", () => {
+			const price = new Money({ amount: 500, currency: "BRL" });
+			const other = new Money({ amount: 500, currency: "BRL" });
+
+			expect(price.add(0)).toBe(false);
+			expect(price.equals(other)).toBe(true);
+
+			price.add(100);
+
+			expect(price.equals(other)).toBe(false);
+		});
+
+		it("recurses into a nested record", () => {
+			const one = new Purse({
+				money: { amount: 1, currency: "BRL" },
+				owner: { name: "alan" },
+			});
+			const raw = one.toJSON();
+
+			expect(
+				Purse.fromJSON(raw).equals(
+					Purse.fromJSON({ ...raw, money: { amount: 2, currency: "BRL" } }),
+				),
+			).toBe(false);
+		});
+
+		/** Same rule as `Entity.sameStateAs`: what a record holds is the entity's identity. */
+		it("compares a nested entity by its id, not by its state", () => {
+			const raw = new Purse({
+				money: { amount: 1, currency: "BRL" },
+				owner: { name: "alan" },
+			}).toJSON();
+
+			expect(
+				Purse.fromJSON(raw).equals(
+					Purse.fromJSON({ ...raw, owner: { ...raw.owner, name: "outro" } }),
+				),
+			).toBe(true);
+		});
+
+		it("goes through a wrapped key item by item, in order", () => {
+			const one = new Basket({ tags: [{ label: "a" }, { label: "b" }] });
+
+			expect(
+				one.equals(new Basket({ tags: [{ label: "a" }, { label: "b" }] })),
+			).toBe(true);
+			expect(
+				one.equals(new Basket({ tags: [{ label: "b" }, { label: "a" }] })),
+			).toBe(false);
+			expect(one.equals(new Basket({ tags: [{ label: "a" }] }))).toBe(false);
+		});
+
+		it("is false for a subclass, in both directions", () => {
+			class Cents extends Money {}
+
+			const base = new Money({ amount: 1, currency: "BRL" });
+			const derived = new Cents({ amount: 1, currency: "BRL" });
+
+			expect(base.equals(derived)).toBe(false);
+			expect(derived.equals(base)).toBe(false);
+		});
+
+		/**
+		 * The trap the whole package already states about blueprints, pinned
+		 * here: two `recordOf` calls with identical arguments are two classes,
+		 * and instances of them are never equal. Mint the class once.
+		 */
+		it("is false across two separate recordOf calls with identical arguments", () => {
+			class One extends recordOf({ label: StringVO }, "same") {}
+			class Two extends recordOf({ label: StringVO }, "same") {}
+
+			expect(new One({ label: "x" }).equals(new Two({ label: "x" }))).toBe(
+				false,
+			);
+		});
+
+		it("is false for anything that is not a record", () => {
+			const price = new Money({ amount: 1, currency: "BRL" });
+
+			expect(price.equals(null)).toBe(false);
+			expect(price.equals(undefined)).toBe(false);
+			expect(price.equals(price.toJSON())).toBe(false);
+			expect(price.equals(price)).toBe(true);
+		});
+
+		it("compares the real value of a sensitive key", () => {
+			expect(
+				new Card({ label: "l", secret: "hunter2" }).equals(
+					new Card({ label: "l", secret: "hunter3" }),
+				),
+			).toBe(false);
+		});
+
+		it("rejects a blueprint key called equals", () => {
+			class Bad extends recordOf({ equals: StringVO }, "bad-equals") {}
+
+			expect(() => new Bad({ equals: "boom" })).toThrow(
+				PropertyNameCollisionException,
+			);
 		});
 	});
 });

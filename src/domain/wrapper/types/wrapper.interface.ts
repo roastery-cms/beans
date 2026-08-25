@@ -57,6 +57,20 @@ export interface IWrapper<
 	 */
 	toSafeJSON(): WrappedRawOf<Kind, Inner>;
 
+	/**
+	 * Whether another container holds the same contents: the same number of
+	 * items, each equal to the item at the same index. **Order-sensitive** — a
+	 * wrapper is a sequence, not a set.
+	 *
+	 * Each item answers with its own pillar's rule, so a wrapped entity
+	 * compares by its `id` rather than by its state.
+	 *
+	 * @param other - Anything. A container minted by a different `arrayOf` /
+	 *   `optionalOf` / `nullableOf` call is not equal.
+	 * @returns `true` when both hold the same items, in the same order.
+	 */
+	equals(other: unknown): boolean;
+
 	/** The derived schema: `t.Array` / `t.Union` over the inner class's own. */
 	readonly schema: t.TSchema;
 

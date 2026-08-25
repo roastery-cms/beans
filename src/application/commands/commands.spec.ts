@@ -1,13 +1,16 @@
 import { Command } from "@/application/command";
 import { transactional } from "@/application/command/decorators";
+import { defineUseCase } from "@/application/command/helpers";
+import { customStringVO } from "@/domain/collections/value-objects/custom";
 import type {
 	CommandDefinition,
 	CommandResult,
 } from "@/application/command/types";
 import { NumberVO, StringVO } from "@/domain/collections/value-objects";
-import { DomainEvent } from "@/domain/domain-event";
+import { DomainEvent, defineDomainEvent } from "@/domain/domain-event";
 import type { IDomainEvent } from "@/domain/domain-event/types";
 import { Entity } from "@/domain/entity";
+import { entityOf } from "@/domain/entity/helpers";
 import type { AccessorsOf, EntityDefinition } from "@/domain/entity/types";
 import { LoopDetectedException } from "@roastery/terroir/exceptions/application";
 import {
@@ -1696,5 +1699,147 @@ describe("commands — with a transaction", () => {
 		await registry.get("on")({ total: 2 });
 
 		expect(trace).toEqual(["audit-order"]);
+	});
+});
+
+const SecretVO = customStringVO({ default: "secret", sensitive: true });
+
+const parcelProperties = { code: StringVO, secret: SecretVO };
+
+const ParcelShipped = defineDomainEvent("parcel.shipped", { code: StringVO });
+
+class Parcel extends entityOf(parcelProperties, "parcel") {
+	public ship(): void {
+		this.raiseEvent(ParcelShipped);
+	}
+}
+
+type ParcelDeps = { readonly shipped: string[] };
+
+class ShipParcelCommand extends defineUseCase<
+	typeof parcelProperties,
+	ParcelDeps,
+	Parcel
+>(parcelProperties, "ship-parcel") {
+	protected async handle(deps: ParcelDeps): Promise<Parcel> {
+		const parcel = new Parcel({ code: this.code, secret: this.secret });
+
+		parcel.ship();
+		deps.shipped.push(parcel.code);
+
+		return parcel;
+	}
+}
+
+@transactional
+class ShipParcelTransactionallyCommand extends defineUseCase<
+	typeof parcelProperties,
+	ParcelDeps,
+	Parcel
+>(parcelProperties, "ship-parcel-tx") {
+	protected async handle(deps: ParcelDeps): Promise<Parcel> {
+		const parcel = new Parcel({ code: this.code, secret: this.secret });
+
+		parcel.ship();
+		deps.shipped.push(parcel.code);
+
+		return parcel;
+	}
+}
+
+describe("commands — a declared event payload across the bus", () => {
+	it("reaches the emitter intact", async () => {
+		const emitter = fakeEmitter();
+		const registry = commands(
+			{ shipParcel: ShipParcelCommand },
+			{ emitter },
+		).withDependencies({ shipped: [] as string[] });
+
+		await registry.shipParcel({ code: "A1", secret: "hunter2" });
+
+		expect((emitter.emitted[0] as IDomainEvent).payload).toEqual({
+			code: "A1",
+		});
+	});
+
+	it("carries only the declared keys — the shape is the allowlist", async () => {
+		const emitter = fakeEmitter();
+		const registry = commands(
+			{ shipParcel: ShipParcelCommand },
+			{ emitter },
+		).withDependencies({ shipped: [] as string[] });
+
+		await registry.shipParcel({ code: "A1", secret: "hunter2" });
+
+		expect(JSON.stringify(emitter.emitted[0])).not.toContain("hunter2");
+	});
+
+	it("reaches a reaction's handle intact", async () => {
+		const seen: unknown[] = [];
+		const registry = commands(
+			{ shipParcel: ShipParcelCommand },
+			{ emitter: fakeEmitter() },
+		)
+			.withDependencies({ shipped: [] as string[] })
+			.on(
+				ParcelShipped,
+				defineEventHandler<InstanceType<typeof ParcelShipped>, unknown>(
+					async (event) => {
+						seen.push(event.payload);
+					},
+				),
+			);
+
+		await registry.shipParcel({ code: "A1", secret: "hunter2" });
+
+		expect(seen).toEqual([{ code: "A1" }]);
+	});
+
+	it("survives on the CommandResult a caller reads directly", async () => {
+		const registry = commands({
+			shipParcel: ShipParcelCommand,
+		}).withDependencies({ shipped: [] as string[] });
+
+		const { events } = await registry.shipParcel({
+			code: "A1",
+			secret: "hunter2",
+		});
+
+		expect(events[0]?.payload).toEqual({ code: "A1" });
+	});
+
+	it("survives being held until a transactional boundary closes", async () => {
+		const trace: string[] = [];
+		const emitter: IEventEmitter = {
+			emit: (event) => {
+				trace.push(`emit:${JSON.stringify(event.payload)}`);
+			},
+		};
+		const registry = commands(
+			{ shipParcel: ShipParcelTransactionallyCommand },
+			{ emitter, transaction: tracingBoundary(trace) },
+		).withDependencies({ shipped: [] as string[] });
+
+		await registry.shipParcel({ code: "A1", secret: "hunter2" });
+
+		// The payload is cut inside the boundary and published after it closed,
+		// intact — the damming never touches what the event carries.
+		expect(trace).toEqual(["begin", "commit", 'emit:{"code":"A1"}']);
+	});
+
+	it("validates on arrival, the far side of the same declaration", async () => {
+		const emitter = fakeEmitter();
+		const registry = commands(
+			{ shipParcel: ShipParcelCommand },
+			{ emitter },
+		).withDependencies({ shipped: [] as string[] });
+
+		await registry.shipParcel({ code: "A1", secret: "hunter2" });
+
+		const crossed: unknown = JSON.parse(
+			JSON.stringify((emitter.emitted[0] as IDomainEvent).payload),
+		);
+
+		expect(ParcelShipped.fromJSON(crossed)).toEqual({ code: "A1" });
 	});
 });
